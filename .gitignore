@@ -1,0 +1,4 @@
+venv*
+.DS_Store
+input_data*
+output_data*
