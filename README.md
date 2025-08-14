@@ -1,4 +1,21 @@
 
+## Next up
+
+Plot be interactive
+
+Clusters over time
+
+See if can make algo to identify 'new ideas' and their paths
+
+See if can predict and test changes in idea fronts (similar to how one predicts the weather)
+
+See if can find 'semantic basins' (ie attractors for certain topics) and what their topology is, algorithmically.
+
+Look for basins of particular things, such as 'high trust', and how people move towards or away from these
+
+
+
+
 ## Ideas
 View movement of 'the conversation' inc topics as per embeddings
 
@@ -24,3 +41,8 @@ preproc/umap_embeddings.py: reduce all embeddings to 2d.
 preproc/plot_sample_embeddings.py: plot 10k random samples of the 2d embeddings
 
 preproc/plot_animation.py: plots animation of weekly tweets in 2d embedding space
+
+
+## Main blockers to immense success
+
+Getting big and comprehensive data on discourse (eg even a sample of lots of Twitter data v expensive to do via the official API)
