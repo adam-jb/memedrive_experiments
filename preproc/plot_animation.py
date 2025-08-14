@@ -195,6 +195,7 @@ def create_tweet_animation():
     anim.save(os.path.expanduser('~/Desktop/memedrive_experiments/visualisations/tweet_animation.gif'), writer='pillow', fps=10, dpi=100)
     print("Animation saved as tweet_animation.mp4!")
 
+    # This opens a new window and lets you walk through the animation frame by frame
     plt.tight_layout()
     plt.show()
 
