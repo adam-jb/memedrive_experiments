@@ -3,3 +3,4 @@ venv*
 input_data*
 output_data*
 trained_models*
+visualisations*

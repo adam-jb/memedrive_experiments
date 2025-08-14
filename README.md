@@ -18,3 +18,9 @@ preproc/Network Analysis.html: export of notebook which gets all tweets from all
 preproc/download_community_archive.py: downloads the community archive parquet file from Azure with a temporary SAS token.
 
 preproc/embed_community_archive.py: gets embeddings for all tweets based on the full text of the tweet (not images or usernames). Uses sentence-transformers/all-mpnet-base-v2' for embeddings.
+
+preproc/umap_embeddings.py: reduce all embeddings to 2d.
+
+preproc/plot_sample_embeddings.py: plot 10k random samples of the 2d embeddings
+
+preproc/plot_animation.py: plots animation of weekly tweets in 2d embedding space
