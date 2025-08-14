@@ -51,7 +51,16 @@ def mps_embeddings_chunked(df, batch_size=128, chunk_size=200_000):
        chunk_end = min(chunk_idx + chunk_size, total_tweets)
        chunk_tweets = tweets[chunk_start:chunk_end]
 
-       print(f"\nProcessing chunk {chunk_idx//chunk_size + 1}/{(total_tweets + chunk_size - 1)//chunk_size}")
+       a = chunk_idx//chunk_size + 1
+       b = (total_tweets + chunk_size - 1)//chunk_size
+       chunk_count = 29 * a / b
+       print('chunk_count', chunk_count)
+
+       ## Hack to ensure we start with chunk 11
+       if chunk_count < 10.9:
+           continue
+
+       print(f"\nProcessing chunk {chunk_count}")
        print(f"Tweets {chunk_start} to {chunk_end-1}")
 
        t1 = time.time()
@@ -96,8 +105,8 @@ def concatenate_embeddings(output_dir):
    print(f"Concatenated embeddings shape: {full_embeddings.shape}")
    return full_embeddings
 
-# Run the chunked embedding
-mps_embeddings_chunked(df, chunk_size=200_000)
+# Run the chunked embedding process
+# mps_embeddings_chunked(df, chunk_size=200_000)
 
 # Concatenate all chunks if you need the full matrix
 embedded_df = concatenate_embeddings('~/Desktop/memedrive_experiments/output_data/community_archive_embeddings')
