@@ -14,14 +14,21 @@ create_transformation_matrix.py
  - Use Canonical correlation analysis to make a matrix to transform embeddings to 3d which are the ‘good faith’ where the 3 dimensions sincerity, charity, constructiveness.
  - Apply transformation matrix to all 5.5m tweet embeddings
 
-TODO: check good faith dimensions looks right for the tweets (ie is the CCA model trained on 25k tweets generalising well to 5.5m)
+ TODO: plot animation as weather system (find efficient way to do this well for future, ideally interactive)
+ - see 'Tweet Time Series Visualisation' Claude chat for this
 
-TODO: plot animation as weather system
+TODO: add train/test performance of CCA model and learned matrix transformation vs the actual good faith dimensions in a train set of 5,000 (training the CCA on the other 20k tweets)
+
+TODO: check good faith dimensions looks right for the tweets (ie is the CCA model trained on 25k tweets generalising well to 5.5m)
 
 TODO: algorithmically look for 'good faith basins' (want a 'basin identification' tool which generalises)
 
 TODO: plot in general 2d space, measuring good faith some other way
 
+TODO: make some physics-inspired model for impact of a single meme, and explaining trajectory of a meme, and predicting future memespace (and counterfactuals if more memes were to be added beyond those expected, perhap via some kind of monte carlo simulation)
+
+TO RUN: 3d_to_2d_umap.py
+ - So can visualise: goes from 3d of good faith to 2d
 
 
 
