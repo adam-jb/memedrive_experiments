@@ -210,6 +210,8 @@
                     this.sizeBuffer = null;
 
                     this.init();
+
+                    this.logCameraPosition();
                 }
 
                 async init() {
@@ -393,18 +395,53 @@
                         this.dates = Object.keys(data.frames).sort();
                         this.totalFrames = this.dates.length;
 
+                        // Preview loaded tweets in console
+                        console.log("=== TWEET PREVIEW ===");
+                        console.log(`Loaded ${this.totalFrames} days of data`);
+                        if (this.dates.length > 0) {
+                            const firstDate = this.dates[0];
+                            const firstFrameTweets = this.dateFrames[firstDate];
+                            console.log(
+                                `\nShowing first 5 tweets from ${firstDate}:`,
+                            );
+                            firstFrameTweets.slice(0, 5).forEach((tweet, i) => {
+                                console.log(
+                                    `${i + 1}. @${tweet.screen_name}: ${tweet.full_text.substring(0, 100)}${tweet.full_text.length > 100 ? "..." : ""}`,
+                                );
+                                console.log(
+                                    `   ❤️ ${tweet.favorite_count} 🔄 ${tweet.retweet_count} | Position: (${tweet.x.toFixed(3)}, ${tweet.y.toFixed(3)})`,
+                                );
+                            });
+                        }
+                        console.log("===================");
+
                         // Convert date-based frames to array format for existing animation logic
                         this.frames = this.dates.map((date) =>
                             this.processFrameData(data.frames[date]),
                         );
 
+                        console.log(this.frames);
+
                         // Update UI bounds based on real data
                         const bounds = this.metadata.coordinate_bounds;
                         this.coordinateBounds = bounds;
+                        console.log("Bounds:");
+                        console.log(this.coordinateBounds);
 
                         // Set initial camera position to center of data
                         this.camera.x = (bounds.x_min + bounds.x_max) / 2;
                         this.camera.y = (bounds.y_min + bounds.y_max) / 2;
+
+                        // override
+                        this.camera.x = 0;
+                        this.camera.y = 0;
+
+                        const zoomX = this.canvas.width / 400; // adjst the denominator depending on the mutliplier of the input coords
+                        const zoomY = this.canvas.height / 400;
+                        // Use the smaller zoom to ensure both ranges fit
+                        this.camera.zoom = Math.min(zoomX, zoomY);
+
+                        console.log("cam:", this.camera.x, this.camera.y);
 
                         // Update timeline max value
                         document.getElementById("timeSlider").max =
@@ -420,9 +457,7 @@
                         `;
                         }
 
-                        console.log(
-                            `Loaded ${this.totalFrames} days of data (${this.metadata.total_tweets} total tweets)`,
-                        );
+                        console.log(`Loaded ${this.totalFrames} days of data)`);
                         console.log(
                             `Date range: ${this.metadata.date_range[0]} to ${this.metadata.date_range[1]}`,
                         );
@@ -437,8 +472,8 @@
                 processFrameData(tweets) {
                     // Convert tweet data to format expected by WebGL renderer
                     return tweets.map((tweet) => ({
-                        x: tweet.x,
-                        y: tweet.y,
+                        x: tweet.x * 100,
+                        y: tweet.y * 100,
                         color: this.getTweetColor(tweet),
                         size: tweet.final_size,
                         opacity: tweet.opacity,
@@ -497,6 +532,8 @@
 
                         sizes[i] = point.size;
                     }
+
+                    console.log("Sizes of this frame is: ", sizes.length);
 
                     this.gl.bindBuffer(
                         this.gl.ARRAY_BUFFER,
@@ -607,6 +644,12 @@
                         this.gl.POINTS,
                         0,
                         this.currentPoints.length,
+                    );
+
+                    console.log(
+                        "cam: on render()",
+                        this.camera.x,
+                        this.camera.y,
                     );
                 }
 
