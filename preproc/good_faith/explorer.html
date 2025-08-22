@@ -1,0 +1,846 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Tweet Time Series Visualization</title>
+        <style>
+            body {
+                margin: 0;
+                padding: 0;
+                background: #0a0a0a;
+                color: white;
+                font-family: "Monaco", "Menlo", monospace;
+                overflow: hidden;
+            }
+
+            #container {
+                position: relative;
+                width: 100vw;
+                height: 100vh;
+            }
+
+            #canvas {
+                display: block;
+                cursor: crosshair;
+            }
+
+            #controls {
+                position: absolute;
+                top: 20px;
+                left: 20px;
+                z-index: 100;
+                background: rgba(0, 0, 0, 0.8);
+                padding: 20px;
+                border-radius: 8px;
+                backdrop-filter: blur(10px);
+                min-width: 300px;
+            }
+
+            #tooltip {
+                position: absolute;
+                background: rgba(0, 0, 0, 0.9);
+                color: white;
+                padding: 12px;
+                border-radius: 6px;
+                pointer-events: none;
+                max-width: 300px;
+                font-size: 12px;
+                line-height: 1.4;
+                opacity: 0;
+                transition: opacity 0.2s;
+                border: 1px solid #333;
+                backdrop-filter: blur(10px);
+            }
+
+            .control-group {
+                margin-bottom: 15px;
+            }
+
+            label {
+                display: block;
+                margin-bottom: 5px;
+                font-size: 12px;
+                color: #ccc;
+            }
+
+            input[type="range"] {
+                width: 100%;
+                margin-bottom: 5px;
+            }
+
+            button {
+                background: #1a1a1a;
+                border: 1px solid #333;
+                color: white;
+                padding: 8px 12px;
+                border-radius: 4px;
+                cursor: pointer;
+                margin-right: 10px;
+                font-size: 11px;
+            }
+
+            button:hover {
+                background: #333;
+            }
+
+            button.active {
+                background: #007acc;
+            }
+
+            #info {
+                font-size: 11px;
+                color: #888;
+                line-height: 1.3;
+            }
+
+            #loading {
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                font-size: 14px;
+                color: #666;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="container">
+            <canvas id="canvas"></canvas>
+
+            <div id="controls">
+                <div class="control-group">
+                    <label>Timeline</label>
+                    <input
+                        type="range"
+                        id="timeSlider"
+                        min="0"
+                        max="0"
+                        value="0"
+                        step="1"
+                    />
+                    <div id="timeDisplay">Loading...</div>
+                </div>
+
+                <div class="control-group">
+                    <button id="playBtn">Play</button>
+                    <button id="pauseBtn">Pause</button>
+                    <button id="resetBtn">Reset</button>
+                </div>
+
+                <div class="control-group">
+                    <label>Point Size: <span id="sizeValue">2.0</span></label>
+                    <input
+                        type="range"
+                        id="sizeSlider"
+                        min="0.5"
+                        max="10"
+                        value="2"
+                        step="0.1"
+                    />
+                </div>
+
+                <div class="control-group">
+                    <label
+                        >Animation Speed:
+                        <span id="speedValue">50ms</span></label
+                    >
+                    <input
+                        type="range"
+                        id="speedSlider"
+                        min="10"
+                        max="200"
+                        value="50"
+                        step="10"
+                    />
+                </div>
+
+                <div id="info">
+                    <div>Tweets: <span id="pointCount">0</span></div>
+                    <div>Hover over tweets for details</div>
+                    <div>Scroll to zoom, drag to pan</div>
+                    <div
+                        id="dataInfo"
+                        style="font-size: 10px; color: #666; margin-top: 8px"
+                    ></div>
+                </div>
+            </div>
+
+            <div id="tooltip"></div>
+            <div id="loading">Loading tweet data...</div>
+        </div>
+
+        <script>
+            class TweetVisualization {
+                constructor() {
+                    this.canvas = document.getElementById("canvas");
+                    this.gl = this.canvas.getContext("webgl");
+                    this.tooltip = document.getElementById("tooltip");
+
+                    if (!this.gl) {
+                        alert("WebGL not supported");
+                        return;
+                    }
+
+                    // Animation state
+                    this.currentFrame = 0;
+                    this.totalFrames = 0; // Will be set when data loads
+                    this.isPlaying = false;
+                    this.animationSpeed = 50;
+                    this.lastFrameTime = 0;
+
+                    // View state
+                    this.camera = { x: 0, y: 0, zoom: 1 };
+                    this.isDragging = false;
+                    this.lastMouse = { x: 0, y: 0 };
+
+                    // Data
+                    this.frames = [];
+                    this.currentPoints = [];
+                    this.pointSize = 2.0;
+                    this.metadata = null;
+                    this.dateFrames = null;
+                    this.dates = [];
+                    this.coordinateBounds = null;
+
+                    // WebGL resources
+                    this.program = null;
+                    this.positionBuffer = null;
+                    this.colorBuffer = null;
+                    this.sizeBuffer = null;
+
+                    this.init();
+                }
+
+                async init() {
+                    this.resizeCanvas();
+                    await this.initWebGL();
+                    await this.loadRealData();
+                    this.setupEventListeners();
+                    this.loadFrame(0);
+                    this.render();
+
+                    document.getElementById("loading").style.display = "none";
+
+                    // Start animation loop
+                    requestAnimationFrame((time) => this.animate(time));
+                }
+
+                resizeCanvas() {
+                    const rect = this.canvas.getBoundingClientRect();
+                    this.canvas.width = window.innerWidth;
+                    this.canvas.height = window.innerHeight;
+                    this.gl.viewport(
+                        0,
+                        0,
+                        this.canvas.width,
+                        this.canvas.height,
+                    );
+                }
+
+                async initWebGL() {
+                    const vertexShaderSource = `
+                    attribute vec2 a_position;
+                    attribute vec4 a_color;
+                    attribute float a_size;
+                    uniform vec2 u_resolution;
+                    uniform vec2 u_camera;
+                    uniform float u_zoom;
+                    uniform float u_pointSizeMultiplier;
+                    varying vec4 v_color;
+
+                    void main() {
+                        vec2 position = (a_position + u_camera) * u_zoom;
+                        vec2 clipSpace = (position / u_resolution) * 2.0 - 1.0;
+                        gl_Position = vec4(clipSpace * vec2(1, -1), 0, 1);
+                        gl_PointSize = a_size * u_pointSizeMultiplier * u_zoom;
+                        v_color = a_color;
+                    }
+                `;
+
+                    const fragmentShaderSource = `
+                    precision mediump float;
+                    varying vec4 v_color;
+
+                    void main() {
+                        float dist = distance(gl_PointCoord, vec2(0.5));
+                        if (dist > 0.5) discard;
+
+                        float alpha = 1.0 - smoothstep(0.3, 0.5, dist);
+                        gl_FragColor = vec4(v_color.rgb, alpha * v_color.a);
+                    }
+                `;
+
+                    const vertexShader = this.createShader(
+                        this.gl.VERTEX_SHADER,
+                        vertexShaderSource,
+                    );
+                    const fragmentShader = this.createShader(
+                        this.gl.FRAGMENT_SHADER,
+                        fragmentShaderSource,
+                    );
+
+                    this.program = this.createProgram(
+                        vertexShader,
+                        fragmentShader,
+                    );
+                    this.gl.useProgram(this.program);
+
+                    // Get attribute and uniform locations
+                    this.locations = {
+                        position: this.gl.getAttribLocation(
+                            this.program,
+                            "a_position",
+                        ),
+                        color: this.gl.getAttribLocation(
+                            this.program,
+                            "a_color",
+                        ),
+                        size: this.gl.getAttribLocation(this.program, "a_size"),
+                        resolution: this.gl.getUniformLocation(
+                            this.program,
+                            "u_resolution",
+                        ),
+                        camera: this.gl.getUniformLocation(
+                            this.program,
+                            "u_camera",
+                        ),
+                        zoom: this.gl.getUniformLocation(
+                            this.program,
+                            "u_zoom",
+                        ),
+                        pointSizeMultiplier: this.gl.getUniformLocation(
+                            this.program,
+                            "u_pointSizeMultiplier",
+                        ),
+                    };
+
+                    // Create buffers
+                    this.positionBuffer = this.gl.createBuffer();
+                    this.colorBuffer = this.gl.createBuffer();
+                    this.sizeBuffer = this.gl.createBuffer();
+
+                    // Enable blending for better point rendering
+                    this.gl.enable(this.gl.BLEND);
+                    this.gl.blendFunc(
+                        this.gl.SRC_ALPHA,
+                        this.gl.ONE_MINUS_SRC_ALPHA,
+                    );
+                }
+
+                createShader(type, source) {
+                    const shader = this.gl.createShader(type);
+                    this.gl.shaderSource(shader, source);
+                    this.gl.compileShader(shader);
+
+                    if (
+                        !this.gl.getShaderParameter(
+                            shader,
+                            this.gl.COMPILE_STATUS,
+                        )
+                    ) {
+                        console.error(
+                            "Shader compile error:",
+                            this.gl.getShaderInfoLog(shader),
+                        );
+                        this.gl.deleteShader(shader);
+                        return null;
+                    }
+
+                    return shader;
+                }
+
+                createProgram(vertexShader, fragmentShader) {
+                    const program = this.gl.createProgram();
+                    this.gl.attachShader(program, vertexShader);
+                    this.gl.attachShader(program, fragmentShader);
+                    this.gl.linkProgram(program);
+
+                    if (
+                        !this.gl.getProgramParameter(
+                            program,
+                            this.gl.LINK_STATUS,
+                        )
+                    ) {
+                        console.error(
+                            "Program link error:",
+                            this.gl.getProgramInfoLog(program),
+                        );
+                        this.gl.deleteProgram(program);
+                        return null;
+                    }
+
+                    return program;
+                }
+
+                async loadRealData() {
+                    try {
+                        document.getElementById("loading").textContent =
+                            "Loading tweet data...";
+
+                        const response = await fetch("tweet_timeseries.json");
+                        if (!response.ok) {
+                            throw new Error(
+                                `Failed to load data: ${response.status}`,
+                            );
+                        }
+
+                        const data = await response.json();
+
+                        // Store metadata
+                        this.metadata = data.metadata;
+                        this.dateFrames = data.frames;
+                        this.dates = Object.keys(data.frames).sort();
+                        this.totalFrames = this.dates.length;
+
+                        // Convert date-based frames to array format for existing animation logic
+                        this.frames = this.dates.map((date) =>
+                            this.processFrameData(data.frames[date]),
+                        );
+
+                        // Update UI bounds based on real data
+                        const bounds = this.metadata.coordinate_bounds;
+                        this.coordinateBounds = bounds;
+
+                        // Set initial camera position to center of data
+                        this.camera.x = (bounds.x_min + bounds.x_max) / 2;
+                        this.camera.y = (bounds.y_min + bounds.y_max) / 2;
+
+                        // Update timeline max value
+                        document.getElementById("timeSlider").max =
+                            this.totalFrames - 1;
+
+                        // Update data info display
+                        const dataInfo = document.getElementById("dataInfo");
+                        if (dataInfo) {
+                            dataInfo.innerHTML = `
+                            ${this.metadata.total_tweets.toLocaleString()} total tweets<br>
+                            ${this.metadata.date_range[0]} to ${this.metadata.date_range[1]}<br>
+                            ${this.metadata.avg_tweets_per_day.toFixed(0)} avg tweets/day
+                        `;
+                        }
+
+                        console.log(
+                            `Loaded ${this.totalFrames} days of data (${this.metadata.total_tweets} total tweets)`,
+                        );
+                        console.log(
+                            `Date range: ${this.metadata.date_range[0]} to ${this.metadata.date_range[1]}`,
+                        );
+                    } catch (error) {
+                        console.error("Failed to load tweet data:", error);
+                        document.getElementById("loading").textContent =
+                            "Error loading data. Please ensure tweet_timeseries.json is available.";
+                        throw error;
+                    }
+                }
+
+                processFrameData(tweets) {
+                    // Convert tweet data to format expected by WebGL renderer
+                    return tweets.map((tweet) => ({
+                        x: tweet.x,
+                        y: tweet.y,
+                        color: this.getTweetColor(tweet),
+                        size: tweet.final_size,
+                        opacity: tweet.opacity,
+                        // Store original tweet data for tooltips
+                        tweetData: tweet,
+                    }));
+                }
+
+                getTweetColor(tweet) {
+                    // Color tweets based on engagement level
+                    const favs = tweet.favorite_count;
+                    const retweets = tweet.retweets;
+                    const engagement = favs + retweets * 2; // Weight retweets more
+
+                    if (engagement === 0) {
+                        // Low engagement: dim blue
+                        return [0.3, 0.5, 0.8];
+                    } else if (engagement < 10) {
+                        // Medium engagement: cyan
+                        return [0.4, 0.8, 0.9];
+                    } else if (engagement < 100) {
+                        // High engagement: yellow
+                        return [0.9, 0.8, 0.3];
+                    } else {
+                        // Viral content: bright red
+                        return [1.0, 0.4, 0.3];
+                    }
+                }
+
+                loadFrame(frameIndex) {
+                    if (frameIndex < 0 || frameIndex >= this.frames.length)
+                        return;
+
+                    this.currentFrame = frameIndex;
+                    this.currentPoints = this.frames[frameIndex];
+
+                    // Update position, color, and size buffers
+                    const positions = new Float32Array(
+                        this.currentPoints.length * 2,
+                    );
+                    const colors = new Float32Array(
+                        this.currentPoints.length * 4,
+                    ); // RGBA for opacity
+                    const sizes = new Float32Array(this.currentPoints.length);
+
+                    for (let i = 0; i < this.currentPoints.length; i++) {
+                        const point = this.currentPoints[i];
+
+                        positions[i * 2] = point.x;
+                        positions[i * 2 + 1] = point.y;
+
+                        colors[i * 4] = point.color[0];
+                        colors[i * 4 + 1] = point.color[1];
+                        colors[i * 4 + 2] = point.color[2];
+                        colors[i * 4 + 3] = point.opacity; // Alpha channel
+
+                        sizes[i] = point.size;
+                    }
+
+                    this.gl.bindBuffer(
+                        this.gl.ARRAY_BUFFER,
+                        this.positionBuffer,
+                    );
+                    this.gl.bufferData(
+                        this.gl.ARRAY_BUFFER,
+                        positions,
+                        this.gl.DYNAMIC_DRAW,
+                    );
+
+                    this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.colorBuffer);
+                    this.gl.bufferData(
+                        this.gl.ARRAY_BUFFER,
+                        colors,
+                        this.gl.DYNAMIC_DRAW,
+                    );
+
+                    this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.sizeBuffer);
+                    this.gl.bufferData(
+                        this.gl.ARRAY_BUFFER,
+                        sizes,
+                        this.gl.DYNAMIC_DRAW,
+                    );
+
+                    // Update UI
+                    document.getElementById("pointCount").textContent =
+                        this.currentPoints.length.toLocaleString();
+
+                    if (this.dates && this.dates[frameIndex]) {
+                        const currentDate = this.dates[frameIndex];
+                        document.getElementById("timeDisplay").textContent =
+                            `Date: ${currentDate} (${frameIndex + 1}/${this.totalFrames})`;
+                    } else {
+                        document.getElementById("timeDisplay").textContent =
+                            `Frame: ${frameIndex} / ${this.totalFrames - 1}`;
+                    }
+
+                    document.getElementById("timeSlider").value = frameIndex;
+                }
+
+                render() {
+                    this.gl.clearColor(0.02, 0.02, 0.05, 1.0);
+                    this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+
+                    if (!this.currentPoints.length) return;
+
+                    this.gl.useProgram(this.program);
+
+                    // Set uniforms
+                    this.gl.uniform2f(
+                        this.locations.resolution,
+                        this.canvas.width,
+                        this.canvas.height,
+                    );
+                    this.gl.uniform2f(
+                        this.locations.camera,
+                        this.camera.x,
+                        this.camera.y,
+                    );
+                    this.gl.uniform1f(this.locations.zoom, this.camera.zoom);
+                    this.gl.uniform1f(
+                        this.locations.pointSizeMultiplier,
+                        this.pointSize,
+                    );
+
+                    // Set position attribute
+                    this.gl.bindBuffer(
+                        this.gl.ARRAY_BUFFER,
+                        this.positionBuffer,
+                    );
+                    this.gl.enableVertexAttribArray(this.locations.position);
+                    this.gl.vertexAttribPointer(
+                        this.locations.position,
+                        2,
+                        this.gl.FLOAT,
+                        false,
+                        0,
+                        0,
+                    );
+
+                    // Set color attribute (now RGBA)
+                    this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.colorBuffer);
+                    this.gl.enableVertexAttribArray(this.locations.color);
+                    this.gl.vertexAttribPointer(
+                        this.locations.color,
+                        4,
+                        this.gl.FLOAT,
+                        false,
+                        0,
+                        0,
+                    );
+
+                    // Set size attribute
+                    this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.sizeBuffer);
+                    this.gl.enableVertexAttribArray(this.locations.size);
+                    this.gl.vertexAttribPointer(
+                        this.locations.size,
+                        1,
+                        this.gl.FLOAT,
+                        false,
+                        0,
+                        0,
+                    );
+
+                    // Draw
+                    this.gl.drawArrays(
+                        this.gl.POINTS,
+                        0,
+                        this.currentPoints.length,
+                    );
+                }
+
+                animate(currentTime) {
+                    if (
+                        this.isPlaying &&
+                        currentTime - this.lastFrameTime > this.animationSpeed
+                    ) {
+                        this.currentFrame =
+                            (this.currentFrame + 1) % this.totalFrames;
+                        this.loadFrame(this.currentFrame);
+                        this.lastFrameTime = currentTime;
+                    }
+
+                    this.render();
+                    requestAnimationFrame((time) => this.animate(time));
+                }
+
+                getMousePosition(event) {
+                    const rect = this.canvas.getBoundingClientRect();
+                    return {
+                        x: event.clientX - rect.left,
+                        y: event.clientY - rect.top,
+                    };
+                }
+
+                screenToWorld(screenX, screenY) {
+                    const worldX =
+                        (screenX - this.canvas.width / 2) / this.camera.zoom -
+                        this.camera.x;
+                    const worldY =
+                        (screenY - this.canvas.height / 2) / this.camera.zoom -
+                        this.camera.y;
+                    return { x: worldX, y: worldY };
+                }
+
+                findNearestPoint(worldX, worldY) {
+                    let nearest = null;
+                    let minDist = Infinity;
+                    const threshold = 20 / this.camera.zoom; // Adjust hit detection based on zoom
+
+                    for (let i = 0; i < this.currentPoints.length; i++) {
+                        const point = this.currentPoints[i];
+                        const dist = Math.sqrt(
+                            Math.pow(point.x - worldX, 2) +
+                                Math.pow(point.y - worldY, 2),
+                        );
+
+                        if (dist < threshold && dist < minDist) {
+                            minDist = dist;
+                            nearest = point;
+                        }
+                    }
+
+                    return nearest;
+                }
+
+                // Get real tweet data for tooltip
+                getTweetTooltipData(point) {
+                    const tweet = point.tweetData;
+                    return {
+                        text: tweet.full_text,
+                        author: tweet.screen_name,
+                        favorites: tweet.favorite_count,
+                        retweets: tweet.retweets,
+                        age_days: tweet.age_days,
+                        tweet_date: tweet.tweet_date,
+                        size: tweet.final_size.toFixed(1),
+                        opacity: tweet.opacity.toFixed(2),
+                    };
+                }
+
+                setupEventListeners() {
+                    // Timeline controls
+                    document
+                        .getElementById("timeSlider")
+                        .addEventListener("input", (e) => {
+                            this.currentFrame = parseInt(e.target.value);
+                            this.loadFrame(this.currentFrame);
+                        });
+
+                    document
+                        .getElementById("playBtn")
+                        .addEventListener("click", () => {
+                            this.isPlaying = true;
+                            document
+                                .getElementById("playBtn")
+                                .classList.add("active");
+                            document
+                                .getElementById("pauseBtn")
+                                .classList.remove("active");
+                        });
+
+                    document
+                        .getElementById("pauseBtn")
+                        .addEventListener("click", () => {
+                            this.isPlaying = false;
+                            document
+                                .getElementById("pauseBtn")
+                                .classList.add("active");
+                            document
+                                .getElementById("playBtn")
+                                .classList.remove("active");
+                        });
+
+                    document
+                        .getElementById("resetBtn")
+                        .addEventListener("click", () => {
+                            this.currentFrame = 0;
+                            this.loadFrame(0);
+                            this.isPlaying = false;
+                            document
+                                .getElementById("playBtn")
+                                .classList.remove("active");
+                            document
+                                .getElementById("pauseBtn")
+                                .classList.remove("active");
+                        });
+
+                    // Point size control
+                    document
+                        .getElementById("sizeSlider")
+                        .addEventListener("input", (e) => {
+                            this.pointSize = parseFloat(e.target.value);
+                            document.getElementById("sizeValue").textContent =
+                                this.pointSize.toFixed(1);
+                        });
+
+                    // Animation speed control
+                    document
+                        .getElementById("speedSlider")
+                        .addEventListener("input", (e) => {
+                            this.animationSpeed = parseInt(e.target.value);
+                            document.getElementById("speedValue").textContent =
+                                `${this.animationSpeed}ms`;
+                        });
+
+                    // Mouse interactions
+                    let hoverTimeout;
+                    this.canvas.addEventListener("mousemove", (e) => {
+                        const mouse = this.getMousePosition(e);
+
+                        if (this.isDragging) {
+                            const deltaX =
+                                (mouse.x - this.lastMouse.x) / this.camera.zoom;
+                            const deltaY =
+                                (mouse.y - this.lastMouse.y) / this.camera.zoom;
+                            this.camera.x += deltaX;
+                            this.camera.y += deltaY;
+                            this.lastMouse = mouse;
+                            return;
+                        }
+
+                        // Debounced hover detection
+                        clearTimeout(hoverTimeout);
+                        hoverTimeout = setTimeout(() => {
+                            const world = this.screenToWorld(mouse.x, mouse.y);
+                            const point = this.findNearestPoint(
+                                world.x,
+                                world.y,
+                            );
+
+                            if (point) {
+                                const tweetData =
+                                    this.getTweetTooltipData(point);
+                                const truncatedText =
+                                    tweetData.text.length > 200
+                                        ? tweetData.text.substring(0, 200) +
+                                          "..."
+                                        : tweetData.text;
+
+                                this.tooltip.innerHTML = `
+                                <div><strong>@${tweetData.author}</strong> • ${tweetData.age_days} days ago</div>
+                                <div style="margin: 8px 0; font-weight: normal;">${truncatedText}</div>
+                                <div style="font-size: 10px; color: #888;">
+                                    ❤️ ${tweetData.favorites} • 🔄 ${tweetData.retweets} •
+                                    Posted: ${tweetData.tweet_date}<br>
+                                    Size: ${tweetData.size} • Opacity: ${tweetData.opacity}
+                                </div>
+                            `;
+                                this.tooltip.style.left = mouse.x + 15 + "px";
+                                this.tooltip.style.top = mouse.y - 10 + "px";
+                                this.tooltip.style.opacity = "1";
+                            } else {
+                                this.tooltip.style.opacity = "0";
+                            }
+                        }, 100);
+                    });
+
+                    this.canvas.addEventListener("mousedown", (e) => {
+                        this.isDragging = true;
+                        this.lastMouse = this.getMousePosition(e);
+                        this.canvas.style.cursor = "grabbing";
+                    });
+
+                    this.canvas.addEventListener("mouseup", () => {
+                        this.isDragging = false;
+                        this.canvas.style.cursor = "crosshair";
+                    });
+
+                    this.canvas.addEventListener("mouseleave", () => {
+                        this.isDragging = false;
+                        this.canvas.style.cursor = "crosshair";
+                        this.tooltip.style.opacity = "0";
+                    });
+
+                    // Zoom
+                    this.canvas.addEventListener("wheel", (e) => {
+                        e.preventDefault();
+                        const mouse = this.getMousePosition(e);
+                        const world = this.screenToWorld(mouse.x, mouse.y);
+
+                        const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
+                        this.camera.zoom *= zoomFactor;
+                        this.camera.zoom = Math.max(
+                            0.1,
+                            Math.min(5, this.camera.zoom),
+                        );
+
+                        // Zoom towards mouse position
+                        const newWorld = this.screenToWorld(mouse.x, mouse.y);
+                        this.camera.x += world.x - newWorld.x;
+                        this.camera.y += world.y - newWorld.y;
+                    });
+
+                    // Resize handling
+                    window.addEventListener("resize", () => {
+                        this.resizeCanvas();
+                    });
+                }
+            }
+
+            // Initialize the visualization
+            new TweetVisualization();
+        </script>
+    </body>
+</html>
