@@ -13,6 +13,7 @@ get_good_faith_ratings.py gets LLM-based assessments of how good faith the tweet
 create_transformation_matrix.py
  - Use Canonical correlation analysis to make a matrix to transform embeddings to 3d which are the ‘good faith’ where the 3 dimensions sincerity, charity, constructiveness.
  - Apply transformation matrix to all 5.5m tweet embeddings
+ - Claude thinks *Separate 1D models ≥ Ridge > 3D CCA*. 3D CCA isnt optimised for predictive power the way Ridge regression is. And separate models for each dimension should add predictive power too.
 
 explorer_preproc.py
  - get_fadeout_multiplier() can be changed to set the rate at which tweets 'degrade' over time in the plot
@@ -43,13 +44,22 @@ Claude thinks Redis would be overkill for this. Use IndexedDb. See 2nd half of c
 
 ## Journal of findings
 
-The first 2 of the 3 dimensions of good faith don't seem amazingly accurate (either due to gpt5-mini's assessments or the CCA transformation not being very good when scaled toa all tweets). Source: manual inspection of the explorer.html nooscope.
+The first 2 of the 3 dimensions of good faith don't seem amazingly accurate (either due to gpt5-mini's assessments or the CCA transformation not being very good when scaled to all tweets). Source: manual inspection of the explorer.html nooscope.
+
+
+
+## Single thing being done right now
+ Claude thinks *Separate 1D models ≥ Ridge > 3D CCA*. 3D CCA isnt optimised for predictive power the way Ridge regression is. And separate models for each dimension should add predictive power too.
+
+find out how to better transform the data
 
 
 
 
 
 ## More to do
+TODO: plot animation for 'good faith' within a low-level topic, where people are more likely to know each other and have communities form
+
 TODO: plot animation as weather system. Get weather-like formulae for this.
 
 TODO: add train/test performance of CCA model and learned matrix transformation vs the actual good faith dimensions in a train set of 5,000 (training the CCA on the other 20k tweets)

@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 from sklearn.cross_decomposition import CCA
 from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
 import time
 
 # Paths
@@ -39,13 +40,78 @@ if nan_mask.sum() > 0:
     faith_labels = faith_labels[~nan_mask]
     print(f"Remaining samples: {len(sample_embeddings)}")
 
+print("Correlations between faith dimensions:")
+print(np.corrcoef(faith_labels.T))
+
+
+print("Running CCA train and test procedure...")
+scaler_embeddings = StandardScaler()
+scaler_faith = StandardScaler()
+
+X_train, X_test, y_train, y_test = train_test_split(sample_embeddings, faith_labels, test_size=0.2, random_state=42)
+
+X_train_scaled = scaler_embeddings.fit_transform(X_train)
+y_train_scaled = scaler_faith.fit_transform(y_train)
+
+
+
+cca_test = CCA(n_components=3)
+cca_test.fit(X_train_scaled, y_train_scaled)
+
+# Test
+X_test_scaled = scaler_embeddings.transform(X_test)
+y_test_scaled = scaler_faith.transform(y_test)
+predictions = X_test_scaled @ cca_test.x_weights_
+
+print('Testing on 20% test set')
+for i, feature in enumerate(['sincerity', 'charity', 'constructiveness']):
+    corr = np.corrcoef(predictions[:, i], y_test_scaled[:, i])[0, 1]
+    print(f"Corr of {corr:.4f} for {feature}")
+
+
+from sklearn.linear_model import LinearRegression
+lr = LinearRegression()
+lr.fit(X_train_scaled, y_train_scaled)
+lr_preds = lr.predict(X_test_scaled)
+
+for i, feature in enumerate(['sincerity', 'charity', 'constructiveness']):
+    corr = np.corrcoef(lr_preds[:, i], y_test[:, i])[0, 1]
+    print(f"Linear regression: {corr:.4f} for {feature}")
+
+for i, feature in enumerate(['sincerity', 'charity', 'constructiveness']):
+    cca_1d = CCA(n_components=1)
+    cca_1d.fit(X_train_scaled, y_train_scaled[:, [i]])
+
+    pred_1d = X_test_scaled @ cca_1d.x_weights_
+    corr = np.corrcoef(pred_1d.flatten(), y_test[:, i])[0, 1]
+    print(f"1D CCA {feature}: {corr:.4f}")
+
+
+from sklearn.linear_model import Ridge
+
+# Test different regularization strengths
+alphas = [0.1, 1.0, 10.0, 100.0]
+
+for alpha in alphas:
+    ridge = Ridge(alpha=alpha)
+    ridge.fit(X_train_scaled, y_train_scaled)
+    ridge_preds = ridge.predict(X_test_scaled)
+
+    print(f"\nRidge (alpha={alpha}):")
+    for i, feature in enumerate(['sincerity', 'charity', 'constructiveness']):
+        corr = np.corrcoef(ridge_preds[:, i], y_test[:, i])[0, 1]
+        print(f"  {feature}: {corr:.4f}")
+
+
+print('End of test: now making the main thing')
+
+
 
 print("Running CCA...")
-
-# Standardize and run CCA
 scaler_embeddings = StandardScaler()
 embeddings_scaled = scaler_embeddings.fit_transform(sample_embeddings)
 faith_scaled = StandardScaler().fit_transform(faith_labels)
+
 
 cca = CCA(n_components=3)
 embedding_projections, faith_projections = cca.fit_transform(embeddings_scaled, faith_scaled)
