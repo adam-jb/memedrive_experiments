@@ -18,9 +18,12 @@ create_transformation_matrix.py
 explorer_preproc.py
  - get_fadeout_multiplier() can be changed to set the rate at which tweets 'degrade' over time in the plot
  - August 22nd: uses the first 2 dimensions from the 3d good faith, as UMAP not run at time of trying
- - has HACK TO LIMIT FILE SIZE. As without that we'd be at a 5gb json output. Use this to determine how much data you general visuals for
+ - has HACK TO LIMIT FILE SIZE. As without that we'd be at a 5gb json output. Use this to determine how much data you generate visuals for
 
-To handle CORS to load local json files into local html
+
+
+## explorer.html
+To handle CORS to load local json files into local explore.html
 ```
 python -m http.server 8000
 ```
@@ -49,22 +52,20 @@ The first 2 of the 3 dimensions of good faith don't seem amazingly accurate (eit
 
 
 ## Single thing being done right now
- Claude thinks *Separate 1D models ≥ Ridge > 3D CCA*. 3D CCA isnt optimised for predictive power the way Ridge regression is. And separate models for each dimension should add predictive power too.
+See why the 'sincerity' and 'charity' appear anticorrelated in the data: is it a transform issue?
 
-find out how to better transform the data
+Consider plotting the original 25k labelled data to test this.
 
 
 
 
 
 ## More to do
+TODO: get understanding of components of the mapper app
+
 TODO: plot animation for 'good faith' within a low-level topic, where people are more likely to know each other and have communities form
 
 TODO: plot animation as weather system. Get weather-like formulae for this.
-
-TODO: add train/test performance of CCA model and learned matrix transformation vs the actual good faith dimensions in a train set of 5,000 (training the CCA on the other 20k tweets)
-
-TODO: check good faith dimensions looks right for the tweets (ie is the CCA model trained on 25k tweets generalising well to 5.5m)
 
 TODO: algorithmically look for 'good faith basins' (want a 'basin identification' tool which generalises)
 
