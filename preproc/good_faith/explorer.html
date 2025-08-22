@@ -129,13 +129,13 @@
                 </div>
 
                 <div class="control-group">
-                    <label>Point Size: <span id="sizeValue">2.0</span></label>
+                    <label>Point Size: <span id="sizeValue">2</span></label>
                     <input
                         type="range"
                         id="sizeSlider"
                         min="0.5"
-                        max="10"
-                        value="2"
+                        max="3"
+                        value="2.0"
                         step="0.1"
                     />
                 </div>
@@ -242,23 +242,26 @@
 
                 async initWebGL() {
                     const vertexShaderSource = `
-                    attribute vec2 a_position;
-                    attribute vec4 a_color;
-                    attribute float a_size;
-                    uniform vec2 u_resolution;
-                    uniform vec2 u_camera;
-                    uniform float u_zoom;
-                    uniform float u_pointSizeMultiplier;
-                    varying vec4 v_color;
+                        attribute vec2 a_position;
+                        attribute vec4 a_color;
+                        attribute float a_size;
+                        uniform vec2 u_resolution;
+                        uniform vec2 u_camera;
+                        uniform float u_zoom;
+                        uniform float u_pointSizeMultiplier;
+                        varying vec4 v_color;
 
-                    void main() {
-                        vec2 position = (a_position + u_camera) * u_zoom;
-                        vec2 clipSpace = (position / u_resolution) * 2.0 - 1.0;
-                        gl_Position = vec4(clipSpace * vec2(1, -1), 0, 1);
-                        gl_PointSize = a_size * u_pointSizeMultiplier * u_zoom;
-                        v_color = a_color;
-                    }
-                `;
+                        void main() {
+                            // Transform world coordinates to screen coordinates
+                            vec2 screenPos = (a_position - u_camera) * u_zoom + u_resolution * 0.5;
+
+                            // Convert to clip space [-1, 1]
+                            vec2 clipSpace = (screenPos / u_resolution) * 2.0 - 1.0;
+                            gl_Position = vec4(clipSpace * vec2(1, -1), 0, 1);
+                            gl_PointSize = a_size * u_pointSizeMultiplier * u_zoom;
+                            v_color = a_color;
+                        }
+                    `;
 
                     const fragmentShaderSource = `
                     precision mediump float;
@@ -451,7 +454,6 @@
                         const dataInfo = document.getElementById("dataInfo");
                         if (dataInfo) {
                             dataInfo.innerHTML = `
-                            ${this.metadata.total_tweets.toLocaleString()} total tweets<br>
                             ${this.metadata.date_range[0]} to ${this.metadata.date_range[1]}<br>
                             ${this.metadata.avg_tweets_per_day.toFixed(0)} avg tweets/day
                         `;

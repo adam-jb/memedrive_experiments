@@ -63,7 +63,7 @@ def create_daily_frames(df):
             print(f"Processing day {i+1}/{len(all_dates)}: {current_date}")
 
         ##!! HACK TO LIMIT FILE SIZE
-        if i > 30:
+        if i > 50:
             return frames
 
         frame_tweets = []

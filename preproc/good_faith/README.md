@@ -17,56 +17,34 @@ create_transformation_matrix.py
 explorer_preproc.py
  - get_fadeout_multiplier() can be changed to set the rate at which tweets 'degrade' over time in the plot
  - August 22nd: uses the first 2 dimensions from the 3d good faith, as UMAP not run at time of trying
- - has HACK TO LIMIT FILE SIZE. As without that we'd be at a 5gb json output
-
- TODO: plot animation as weather system (find efficient way to do this well for future, ideally interactive)
- - see 'Tweet Time Series Visualisation' Claude chat for this
- TO FIGURE OUT: Way to have all the data load and be interactive (maybe start with just coords, and tooltip be key/value store)
+ - has HACK TO LIMIT FILE SIZE. As without that we'd be at a 5gb json output. Use this to determine how much data you general visuals for
 
 To handle CORS to load local json files into local html
 ```
 python -m http.server 8000
 ```
 
-
+ IF NEED A WAY TO have all the data load and be interactive (maybe start with just coords, and tooltip be key/value store which could run locally for starters)
+   Good way to do this is likely to be IndexedDb and break tooltip files into separate ones for each day. Then it loads them whenever date changes (after a wait so not trapped by animations), as people can wait the 100-300ms it takes to load the 1mb file. Structure for this could look like:
 ```
-now this is for you to implement: * base all this on the current code you made which looks good and is attached
-
-read the file saved here: taking the first 2 cols (there are 3) as you positions.
-
-# Save the transformed embeddings
-
-output_path = os.path.expanduser('~/Desktop/memedrive_experiments/output_data/good_faith_umap_embeddings_2d.npz')
-
-np.savez_compressed(output_path, good_faith_umap_embeddings=umap_embeddings)
-
-print(f"Good faith UMAP embeddings saved to {output_path}")
-
-the above are the coordinates for tweets which have a row for each item in df:
-
-    input_path = Path('~/Desktop/memedrive_experiments/input_data/community_archive.parquet').expanduser().   use df['datetime'] = pd.to_datetime(df['datetime']) to get timestamp; df = df[df['datetime'] >= '2023-01-01'] to filter older tweets; # Outlier pruning
-
-    center_x = np.mean(df['x'])
-
-    center_y = np.mean(df['y'])
-
-    distances = np.sqrt((df['x'] - center_x)**2 + (df['y'] - center_y)**2)
-
-    threshold = np.percentile(distances, 99)
-
-    df = df[distances <= threshold]
-
-; preprocess it so we can see the tweets for EVERY DAY : a time slice for every day [OR DONT PREPROC IF YOU THINK THATS A BAD IDEA WHATEVER IS SIMPLEST]; make it so that if a tweet was made the day before its still visible, but fades, and if it was two days ago its even more faded; ensure there is an explicitly defined function for the rate of fadeout so I can customise that later if need be when I get more info; there should be a tooltip of the tweet text whcih is the col 'full_text' , 'favorite_count', 'retweets', and 'screen_name' in the df; fadeouts should be in opacity and size of the tweets; size of tweet should be, in addition to being controlled by fadeout, proportional to the importance of the tweet which is defined by the col in the df 'favorite_count' (with a floor as most tweets have 0 for this value, with a few large outliers)
-
-make it so that there is a frame for each day as per the preprocessing, and its viewable in the same was as you implemented before, with the control pane along the bottom, and the rest of the screen being the main visualisation
-
-let me know if anything else you need to know before doing this
-
+   tweets/
+   ├── render_data/
+   │   ├── 2023-01-01.json     (~50KB, ~1000 tweets)
+   │   ├── 2023-01-02.json
+   │   └── ...
+   └── full_data/
+       ├── 2023-01-01.json     (~500KB, full tweet data)
+       ├── 2023-01-02.json
+       └── ...
 ```
+Claude thinks Redis would be overkill for this. Use IndexedDb. See 2nd half of convo with Claude on 22nd August 2025 'tweet visualisation loading issue' for more on how to do this - link to convo: https://claude.ai/share/0c9e5267-557c-4920-ab79-5dcc53963cd0
+
 
 
 
 ## More to do
+TODO: plot animation as weather system. Get weather-like formulae for this.
+
 TODO: add train/test performance of CCA model and learned matrix transformation vs the actual good faith dimensions in a train set of 5,000 (training the CCA on the other 20k tweets)
 
 TODO: check good faith dimensions looks right for the tweets (ie is the CCA model trained on 25k tweets generalising well to 5.5m)
