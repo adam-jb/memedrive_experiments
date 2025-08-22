@@ -41,6 +41,13 @@ Claude thinks Redis would be overkill for this. Use IndexedDb. See 2nd half of c
 
 
 
+## Journal of findings
+
+The first 2 of the 3 dimensions of good faith don't seem amazingly accurate (either due to gpt5-mini's assessments or the CCA transformation not being very good when scaled toa all tweets). Source: manual inspection of the explorer.html nooscope.
+
+
+
+
 
 ## More to do
 TODO: plot animation as weather system. Get weather-like formulae for this.
