@@ -109,6 +109,7 @@
             <canvas id="canvas"></canvas>
 
             <div id="controls">
+                <h2>Memetic scope</h2>
                 <div class="control-group">
                     <label>Timeline</label>
                     <input
@@ -155,6 +156,9 @@
                     />
                 </div>
 
+                <button id="prevBtn">← Previous</button>
+                <button id="nextBtn">Next →</button>
+                <br /><br />
                 <div id="info">
                     <div>Tweets: <span id="pointCount">0</span></div>
                     <div>Hover over tweets for details</div>
@@ -172,7 +176,10 @@
 
         <script>
             class TweetVisualization {
+                // constructor() gets things started; esp calling this.init()
+                // a constructor() func in a class automatically runs on initialising the class
                 constructor() {
+                    // this = this instance of obj (like 'self' in python)
                     this.canvas = document.getElementById("canvas");
                     this.gl = this.canvas.getContext("webgl");
                     this.tooltip = document.getElementById("tooltip");
@@ -241,40 +248,62 @@
                 }
 
                 async initWebGL() {
+                    // among other things tells us what fields
                     const vertexShaderSource = `
-                        attribute vec2 a_position;
-                        attribute vec4 a_color;
-                        attribute float a_size;
-                        uniform vec2 u_resolution;
-                        uniform vec2 u_camera;
-                        uniform float u_zoom;
-                        uniform float u_pointSizeMultiplier;
-                        varying vec4 v_color;
 
-                        void main() {
-                            // Transform world coordinates to screen coordinates
-                            vec2 screenPos = (a_position - u_camera) * u_zoom + u_resolution * 0.5;
+                      // INPUTS (what gets passed in for each tweet)
+                      attribute vec2 a_position;        // This tweet's X,Y coordinates
+                      attribute vec4 a_color;           // This tweet's R,G,B,A color
+                      attribute float a_size;           // This tweet's size
 
-                            // Convert to clip space [-1, 1]
-                            vec2 clipSpace = (screenPos / u_resolution) * 2.0 - 1.0;
-                            gl_Position = vec4(clipSpace * vec2(1, -1), 0, 1);
-                            gl_PointSize = a_size * u_pointSizeMultiplier * u_zoom;
-                            v_color = a_color;
-                        }
+                      // GLOBAL SETTINGS (same for all tweets this frame)
+                      uniform vec2 u_resolution;        // Screen width/height (e.g., [1920, 1080])
+                      uniform vec2 u_camera;            // Camera position (e.g., [100, 50])
+                      uniform float u_zoom;             // Zoom level (e.g., 1.5)
+                      uniform float u_pointSizeMultiplier; // Global size multiplier (e.g., 2.0)
+
+                      // OUTPUT (what gets passed to the fragment shader)
+                      varying vec4 v_color;             // Pass the color along
+
+                      // THE FUNCTION
+                      void main() {
+                          // Transform this tweet's world position to screen position
+                          vec2 screenPos = (a_position - u_camera) * u_zoom + u_resolution * 0.5;
+
+                          // Convert to WebGL's coordinate system
+                          vec2 clipSpace = (screenPos / u_resolution) * 2.0 - 1.0;
+
+                          // Tell GPU where to draw this point
+                          gl_Position = vec4(clipSpace * vec2(1, -1), 0, 1);
+
+                          // Tell GPU how big to make this point
+                          gl_PointSize = a_size * u_pointSizeMultiplier * u_zoom;
+
+                          // Pass color to fragment shader
+                          v_color = a_color;
+                      }
                     `;
 
                     const fragmentShaderSource = `
-                    precision mediump float;
-                    varying vec4 v_color;
+                        precision mediump float;
 
-                    void main() {
-                        float dist = distance(gl_PointCoord, vec2(0.5));
-                        if (dist > 0.5) discard;
+                        // INPUT from vertex shader
+                        varying vec4 v_color;             // Color passed from vertex shader
 
-                        float alpha = 1.0 - smoothstep(0.3, 0.5, dist);
-                        gl_FragColor = vec4(v_color.rgb, alpha * v_color.a);
-                    }
-                `;
+                        void main() {
+                            // Calculate distance from center of point (0.5, 0.5 is center)
+                            float dist = distance(gl_PointCoord, vec2(0.5));
+
+                            // Discard pixels outside circle (make point circular)
+                            if (dist > 0.5) discard;
+
+                            // Create soft edges (fade from solid to transparent)
+                            float alpha = 1.0 - smoothstep(0.3, 0.5, dist);
+
+                            // Set final pixel color
+                            gl_FragColor = vec4(v_color.rgb, alpha * v_color.a);
+                        }
+                    `;
 
                     const vertexShader = this.createShader(
                         this.gl.VERTEX_SHADER,
@@ -475,7 +504,7 @@
                     // Convert tweet data to format expected by WebGL renderer
                     return tweets.map((tweet) => ({
                         x: tweet.x * 100,
-                        y: tweet.y * 100,
+                        y: tweet.y * -100, // All Y values are inverted at the point of rendering the graphics, so this makes it a double reversal
                         color: this.getTweetColor(tweet),
                         size: tweet.final_size,
                         opacity: tweet.opacity,
@@ -714,6 +743,8 @@
                     const tweet = point.tweetData;
                     return {
                         text: tweet.full_text,
+                        x: tweet.x,
+                        y: tweet.y,
                         author: tweet.screen_name,
                         favorites: tweet.favorite_count,
                         retweets: tweet.retweets,
@@ -780,6 +811,26 @@
                                 this.pointSize.toFixed(1);
                         });
 
+                    // Previous frame
+                    document
+                        .getElementById("prevBtn")
+                        .addEventListener("click", () => {
+                            if (this.currentFrame > 0) {
+                                this.currentFrame--;
+                                this.loadFrame(this.currentFrame);
+                            }
+                        });
+
+                    // Next frame
+                    document
+                        .getElementById("nextBtn")
+                        .addEventListener("click", () => {
+                            if (this.currentFrame < this.totalFrames - 1) {
+                                this.currentFrame++;
+                                this.loadFrame(this.currentFrame);
+                            }
+                        });
+
                     // Animation speed control
                     document
                         .getElementById("speedSlider")
@@ -830,6 +881,7 @@
                                     ❤️ ${tweetData.favorites} • 🔄 ${tweetData.retweets} •
                                     Posted: ${tweetData.tweet_date}<br>
                                     Size: ${tweetData.size} • Opacity: ${tweetData.opacity}
+                                    [SUBJECT TO CHANGE] Sincerity: ${tweetData.x} || Charity: ${tweetData.y}
                                 </div>
                             `;
                                 this.tooltip.style.left = mouse.x + 15 + "px";

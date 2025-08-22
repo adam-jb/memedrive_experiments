@@ -11,9 +11,15 @@ get_good_faith_ratings.py gets LLM-based assessments of how good faith the tweet
 - Uses 3 dimensions to define what 'good faith' is ('sincerity', 'charity', 'constructiveness') rated on scale of 1-7 by an AI. Arrived at these via discussion with Claude, which could refer to if open up the discussion of how to define Good Faith again: https://claude.ai/public/artifacts/e74e73b9-dd6f-41c3-bc5c-1ae9bf638755
 
 create_transformation_matrix.py
- - Use Canonical correlation analysis to make a matrix to transform embeddings to 3d which are the ‘good faith’ where the 3 dimensions sincerity, charity, constructiveness.
+ - Use linear regression to make a matrix to transform embeddings to 3d which are the ‘good faith’ where the 3 dimensions sincerity, charity, constructiveness.
  - Apply transformation matrix to all 5.5m tweet embeddings
- - Claude thinks *Separate 1D models ≥ Ridge > 3D CCA*. 3D CCA isnt optimised for predictive power the way Ridge regression is. And separate models for each dimension should add predictive power too.
+ - Tested (code in older commits) ridge regression, CCA (3d and 1d) and random forest. ridge and 1d CCA got same result as linear regression; 3d CCA and RF did worse. So sticking with linear regression. Correlation between predicted and actual on 5k test set:
+ ```
+ sincerity: 0.6741
+ charity: 0.6311
+ constructiveness: 0.7000
+```
+
 
 explorer_preproc.py
  - get_fadeout_multiplier() can be changed to set the rate at which tweets 'degrade' over time in the plot
@@ -52,18 +58,18 @@ The first 2 of the 3 dimensions of good faith don't seem amazingly accurate (eit
 
 
 ## Single thing being done right now
-See why the 'sincerity' and 'charity' appear anticorrelated in the data: is it a transform issue?
-
-Consider plotting the original 25k labelled data to test this.
+Figure out better dimensions for good faith: sincerity and charity are fine, but things can be low on both and just funny, which is also good for the discourse!
 
 
 
 
 
-## More to do
-TODO: get understanding of components of the mapper app
+## More to do: prioritise by what is going to help customers achieve their memedriving options
+TODO: plot animation for 'good faith' within a specific low-level topic, where people are more likely to know each other and have communities form
 
-TODO: plot animation for 'good faith' within a low-level topic, where people are more likely to know each other and have communities form
+TODO: consider dimensions I might look in where I'm likely to have predictive power
+
+TODO: look at v popular tweets: are there any conditions prior to them taking off which suggest high receptivity to that idea?
 
 TODO: plot animation as weather system. Get weather-like formulae for this.
 

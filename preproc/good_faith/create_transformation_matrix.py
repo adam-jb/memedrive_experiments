@@ -73,6 +73,8 @@ for i, feature in enumerate(['sincerity', 'charity', 'constructiveness']):
 
 print('End of test: now making the main thing')
 
+
+
 print("Running Linear Regression on full dataset...")
 scaler_embeddings = StandardScaler()
 embeddings_scaled = scaler_embeddings.fit_transform(sample_embeddings)
@@ -109,7 +111,20 @@ for i in range(0, len(all_embeddings), batch_size):
     good_faith_embeddings_all[i:end] = standardized_batch @ lr_final.coef_.T + lr_final.intercept_
     print(f"Processed batch {i}")
 
+print('Correlations of final output:\n', np.corrcoef(good_faith_embeddings_all.T))
+
 output_path = os.path.expanduser('~/Desktop/memedrive_experiments/output_data/good_faith_embeddings_3d.npz')
 np.savez_compressed(output_path, good_faith_embeddings_all=good_faith_embeddings_all)
 print(f"good_faith_embeddings_3d saved to {output_path}")
 print(f'In {time.time() - t1} seconds')
+
+### In case need to load this output file we just made
+# file_path = os.path.expanduser('~/Desktop/memedrive_experiments/output_data/good_faith_embeddings_3d.npz')
+# data = np.load(file_path)
+# good_faith_embeddings_all = data['good_faith_embeddings_all']
+# print(f"Loaded embeddings with shape: {good_faith_embeddings_all.shape}")
+# print(f"Data type: {good_faith_embeddings_all.dtype}")
+# print(f"Available keys in file: {list(data.keys())}")
+# print('Correlations between faith dimensions:')
+# print(np.corrcoef(good_faith_embeddings_all.T))
+# data.close()
