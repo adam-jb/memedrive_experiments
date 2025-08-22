@@ -162,7 +162,7 @@ def main():
     logging.info(f"Loaded {len(df)} total tweets")
 
     # Sample N random tweets
-    TWEET_COUNT = 10
+    TWEET_COUNT = 25_000
     sample_size = min(TWEET_COUNT, len(df))  # In case there are fewer than 10k tweets
     sample_df = df.sample(n=sample_size, random_state=42)
     logging.info(f"Sampled {sample_size} tweets")
@@ -191,7 +191,7 @@ def main():
     final_df['good_faith_score'] = final_df[['sincerity', 'charity', 'constructiveness']].mean(axis=1)
 
     # Also save as CSV for easier inspection
-    csv_file = output_dir / f'tweet_good_faith_ratings_{timestamp}.csv'
+    csv_file = output_dir / f'tweet_good_faith_ratings.csv'
     final_df.to_csv(csv_file, index=False)
     logging.info(f"Saved CSV version to {csv_file}")
 
