@@ -50,6 +50,7 @@ def generate_tweet_embeddings(n_samples=5000, n_clusters=5, noise_ratio=0.15, se
     date_range = (end_date - start_date).days
 
     # Generate cluster centers that are well-separated
+    ##!! This makes 5 basins
     cluster_centers = np.array([
         [-2.5, -2.0],  # Bottom left cluster
         [2.8, -1.8],   # Bottom right cluster
@@ -200,7 +201,7 @@ def create_tweet_embeddings_dataset():
 
     # Generate the data
     df = generate_tweet_embeddings(
-        n_samples=5_000,
+        n_samples=100_000,
         n_clusters=5,
         noise_ratio=0.15,
         seed=42
