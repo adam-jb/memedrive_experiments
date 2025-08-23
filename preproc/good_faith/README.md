@@ -57,11 +57,36 @@ Claude thinks Redis would be overkill for this. Use IndexedDb. See 2nd half of c
 
 
 
-
 ## Single thing being done right now
 make good 'basin finding' tool:
  - want it to be standardised function I can apply all over the place
- - probably best for it to be a fusion of methods, then can see how well they concur
+ - probably best for it to be a fusion of methods, then can see how well they concur. Could include any which have predictive power beyond some threshold... tho the basins have to be there to detect (could make some fake data which I know has basins to test this, which is smaller dataset so I can be sure the code works, while being same structure, col names, etc, as the main dataset); this might involve making my pipelines more unified, and functionalised (so can point at different files).
+ want to ensure it can scale to different numbers of dimensions in embedding space
+ >>try claude code?
+
+
+make a func to make and store arbitrary embeddings data, with labels
+
+base it on real labels of tweets from:
+df = pd.read_parquet('~/Desktop/memedrive_experiments/input_data/community_archive.parquet')
+[dont actually read the file but use the col names: datetime, full_text]
+
+the fake datetimes should be better 1st jan 2023 and 28th feb 2023
+
+and make fake separate embeddings pertaining to a sample of these
+
+the embeddings should be in 2d space
+
+ensure that there are genuine clusters & noise in the data, and that the clusters dont move around much over time
+
+make a final df which has the df fields and the embedding coords, where all embeding fields start with 'e' so can find them automatically if they scale
+
+save output file without timestamp in ~/Desktop/memedrive_experiments/output_data/basin_finder/
+
+
+
+
+
 
 Approaches to bring in:
  - [TO CHANGE: bring in Drift-field change instead which is similar but more suited to this use case] Optimal Transport with entropic smoothing: converts space to grid and computes minimum flow (energy) to go from snapshot t to t+1. This can be very 'overfitt-y', so the entropic smoothing makes it fit less strongly, which is better when there is more noise. Increase this regularisation parameter 'epsilon' as noise increases (I probably want it to be very high indeed)
@@ -71,6 +96,35 @@ Approaches to bring in:
  - Kernel Density Estimation: get the density of all tweets, accounting for relative importance and fading over time.
   Uses temporal decay function: `w = engagement_weight * exp(-(t - s)/τ)` where t = time now, s = time posted, and tau is a constant. I can set tau, or have the model learn a value for tau which gives it the most predictive power. gpt5 suggests giving only a few options for tau for an ML model to choose from, to prevent overfitting.
   Is there a tau-like parameter for spatial decay too? (eg width of contribution of each tweet to overall density) Yes: the bandwidth parameter (h) of KDE.
+
+- Cluster tracking + barriers/escapes
+```
+Nice thing about this is it tells a discrete story: actual clusters you can name/plot, with entry/exit dynamics, barriers, and lifetimes. Great for stakeholder comms and dashboards.
+
+Idea
+Find clusters in each time bin (DBSCAN or mean-shift on the (x,y) tweets that are temporally nearby). Track clusters over time (Hungarian matching). For each tracked cluster (= candidate basin), compute:
+Center drift toward local density core,
+Escape rate (how fast points leave),
+Inward-move fraction: % of child tweets closer to cluster center than their parents (vs null).
+Barrier (density drop along easiest exit path).
+Psuudocode:
+# 0) per time bin, select tweets in a rolling window with temporal weights
+# 1) cluster
+# 2) compute cluster stats (eg centre drift, )
+# 3) track clusters across time via IoU / nearest centers (Hungarian) [i think we'd need a measure of how much the clusters are changing between time stamps: large changes mean they are more likely to be a result of noise]
+# 4) escape rates: follow member tweets across future bins
+# 5) barriers via density-weighted shortest paths
+
+Likely isue with cluster tracking
+- Cluster instability; mitigate via stability selection across bandwidths and seeds.
+```
+
+- Spatio-temporal Hawkes (self-excitation) on regions
+
+- Stochastic Lyapunov analysis
+
+
+
 
 GPT thoughts on parameter specifying: 'the value at which strength peaks: that’s the “natural” value for that feature the basin.'
 
@@ -94,22 +148,8 @@ I think drift-field change is more suited to our use case than Optical Transport
 
 
 
-
-8) Cluster tracking + barriers/escapes (pragmatic)
-Idea
-Cluster each time bin (e.g., mean-shift/DBSCAN on KDE modes). Track clusters over time; clusters that persist and pull replies inward are basins.
-What to compute
-Center drift toward high-density cores.
-Inward-move fraction: % of child tweets closer to cluster center than their parents (vs null).
-Escape rate: probability to leave the cluster within
-k
-k days; Barrier = minimal density drop along shortest path to leave (via density-weighted geodesics).
-Why it’s good
-Easy to explain, robust, pairs nicely with visualizations.
-Pitfalls
-Cluster instability; mitigate via stability selection across bandwidths and seeds.
-
-
+7) Another approach for graph metastability using markov stability
+**involves binning space and finding transition probailities: my sense is the data are too sparse and this too crude to be much good for this use case**
 Build a kNN graph over tweets with temporal weights (decay) and conversation edges. Run diffusion maps (or Markov stability / PCCA+) to find metastable sets—regions where a random walk gets “trapped.”
 What to compute
 Conductance / normalized cut of sets (lower = stronger basin).
@@ -121,6 +161,60 @@ Captures non-convex, multi-basin structure without strong parametric assumptions
 Pitfalls
 Scaling to 2.2M nodes: use sampling, landmark diffusion, or cluster-then-graph.
 
+What it adds (vs your current time-decayed graph idea)
+Clear basin strength via conductance, mean first-passage time (MFPT), and Markov Stability at multiple Markov times.
+Natural per-basin, per-time scores by using sliding windows or exponential time weights.
+
+to ask: what are conductance, mean first-passage time (MFPT), and Markov Stability ?
+conductance = Measures how “leaky” a set of nodes is in the graph.
+Low conductance → a random walker starting in this set rarely leaves → strong basin.
+High conductance → the set is loosely connected → not a stable basin.
+
+Mean first passage time: Imagine a random walker starting inside the basin. MFPT = average number of steps before it leaves the basin.
+Longer MFPT → basin is “deep” or “sticky.”
+Short MFPT → easy to escape → weak basin.
+
+ Markov Stability: Treats a random walk as a Markov process over the graph.
+ train markov model by: Estimate transition probabilities between bins based on the drift of density between snapshots, giving us a row-stochastic transition matrix
+Measures how long a set of nodes retains probability mass under diffusion.
+Large spectral gap or high Markov stability → a metastable set = strong candidate basin.
+
+on spectral gap: In this context, “spectral” refers to eigenvalues and eigenvectors of a matrix that represents your system, usually the graph Laplacian or transition matrix of a Markov chain. It’s called spectral because it’s literally the “spectrum” (set of eigenvalues).
+The difference between the first (largest) and second largest eigenvalue of P (or between first non-zero eigenvalues of Laplacian).
+Measures how slow a random walker escapes a cluster:
+Big gap → slow escape → strong basin.
+Small gap → fast escape → weak basin.
+
+
+psuedocode:
+```
+# 1) edges by spatial + temporal proximity (no replies needed)
+for (i, j) in approximate_knn(df.xy, k=K):
+    w_spatial  = exp(-dist_xy(i,j)/sigma_xy)
+    w_temporal = exp(-abs(df.t[i]-df.t[j])/tau_time)
+    w = w_spatial * w_temporal * engagement_scale(i,j)
+    if w > eps: add_edge(G, i, j, weight=w)
+
+# 2) (option A) sliding-window graphs
+for r in windows:
+    G_r = subgraph_by_time(G, window=r, decay=None)
+    communities = spectral_or_leiden(G_r, n_comms="auto")
+
+    for C in communities:
+        cond[C,r]  = conductance(G_r, C)
+        mfpt[C,r]  = mean_first_passage_time(G_r, C)
+        mstab[C,r] = markov_stability(G_r, C, markov_time_grid)
+
+# 2) (option B) single graph with continuous exponential time weights
+# same scoring; times already baked into edges
+
+# 3) persistence across time
+tracks = match_communities_over_time(communities, criterion="Jaccard_on_nodes")
+for track in tracks:
+    per_time_scores = { "cond": cond[track,:], "mfpt": mfpt[track,:], "mstab": mstab[track,:] }
+    aggregate_scores(track, per_time_scores)
+```
+
 
 
 3) Spatio-temporal Hawkes (self-excitation) on regions
@@ -128,11 +222,43 @@ Idea
 Discretize the plane into regions (adaptive cells around candidate basins). Fit a marked Hawkes process where past tweets in region A elevate intensity of future tweets in A with decay
 ϕ
 ϕ. Basins correspond to high self-excitation and low cross-excitation.
+3) Spatio-temporal Hawkes on regions (self-excitation): hwo does it work?
+
+“Self-exciting” = past events increase the probability of future events nearby in space and time.
+
+first step: discretize space
+Either a regular grid or adaptive cells around candidate KDE peaks.
+Each cell is a  “region” where we count events.
+
+the underlying “attractiveness” of regions changes over time, because basins can emerge, persist, and fade. This means you cannot assume stationarity over the full dataset. **So want to keep retraining models over a sliding window**
+
+the temporal window length for retraining acts as a hyperparameter controlling temporal resolution vs stability
+
+it gets you expected intensity of future tweets in that region. Check out the temporal persistence: Persistent high scores → stable basin
+
+sparse regions may produce unreliable parameter estimates. Could use regularization or thresholding to discard very low-activity regions.
+
 
 
 
 7) SDE + (stochastic) Lyapunov analysis
-SDE in this case is... ?
+Tweets themselves are static once posted.
+The “flow” happens in future tweets appearing nearby: a basin attracts new events, not moves existing ones.
+So you want a density-flow of events over time, not displacement of points.
+
+Treat local tweet density as a stochastic process:
+density(x, t+Δt) = f(density(x, t)) + noise
+“Drift” = tendency for density to increase near high-density points (self-excitation).
+Noise = stochastic variation in new tweet arrivals.
+
+This is still a valid way to quantify basin stability, if you reinterpret the “drift” as growth of density in a region rather than movement of points.
+
+Need to ensure regularisation happens the appropriate amount.
+
+Ensure you quantify basin stability probabilistically, e.g., fraction of simulations where density increases near the basin center.
+
+Regularization should be tuned via predictive performance on next time step, not arbitrary smoothing.
+
 ```
 
 
@@ -157,6 +283,7 @@ TODO: plot animation as weather system. Get weather-like formulae for this.
 
 TODO: make some physics-inspired model for impact of a single meme, and explaining trajectory of a meme, and predicting future memespace (and counterfactuals if more memes were to be added beyond those expected, perhap via some kind of monte carlo simulation)
 
+TODO (this is bigger so for later): explore deep learning methods, eg spatio-temporal transformer, ideally powered by larger 1.3bn tweet dataset
 
 
 

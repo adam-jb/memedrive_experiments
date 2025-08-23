@@ -19,7 +19,7 @@ Look for basins of particular things, such as 'high trust', and how people move 
 ## Ideas
 View movement of 'the conversation' inc topics as per embeddings
 
-Can see what started 'change in topic' or 'movement'? Will beed a way to quantify what I mean by these
+Can see what started 'change in topic' or 'movement'? Will need a way to quantify what I mean by these
 
 Want a good way to quantify how much tweets shift 'the discourse' (eg do they bring in new ideas, etc)
 This is predicated on one or two tweets having some outsized 'tipping point' effect: it may be that that's not how ideas tend to move around and ideas tend to more often spread only when lots of people make lots of small contributions

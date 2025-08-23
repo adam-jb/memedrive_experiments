@@ -39,7 +39,7 @@ def generate_tweet_embeddings(n_samples=5000, n_clusters=5, noise_ratio=0.15, se
     - seed: Random seed for reproducibility
 
     Returns:
-    - pd.DataFrame with datetime, full_text, e_x, e_y columns
+    - pd.DataFrame with datetime, full_text, retweet_count, favourite_count, e_x, e_y columns
     """
     np.random.seed(seed)
     random.seed(seed)
@@ -111,9 +111,15 @@ def generate_tweet_embeddings(n_samples=5000, n_clusters=5, noise_ratio=0.15, se
             ]
             full_text = random.choice(tweet_templates)
 
+            # Generate power law distributed engagement counts
+            retweet_count = generate_power_law_count(max_val=1000, zero_prob=0.75)
+            favourite_count = generate_power_law_count(max_val=1000, zero_prob=0.70)
+
             data.append({
                 'datetime': timestamp,
                 'full_text': full_text,
+                'retweet_count': retweet_count,
+                'favourite_count': favourite_count,
                 'e_x': embedding[0],
                 'e_y': embedding[1]
             })
@@ -143,9 +149,15 @@ def generate_tweet_embeddings(n_samples=5000, n_clusters=5, noise_ratio=0.15, se
         ]
         full_text = random.choice(noise_templates)
 
+        # Generate power law distributed engagement counts (noise tweets typically get less engagement)
+        retweet_count = generate_power_law_count(max_val=500, zero_prob=0.85)
+        favourite_count = generate_power_law_count(max_val=500, zero_prob=0.80)
+
         data.append({
             'datetime': timestamp,
             'full_text': full_text,
+            'retweet_count': retweet_count,
+            'favourite_count': favourite_count,
             'e_x': embedding[0],
             'e_y': embedding[1]
         })
@@ -188,7 +200,7 @@ def create_tweet_embeddings_dataset():
 
     # Generate the data
     df = generate_tweet_embeddings(
-        n_samples=5000,
+        n_samples=5_000,
         n_clusters=5,
         noise_ratio=0.15,
         seed=42
