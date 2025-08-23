@@ -24,8 +24,14 @@ create_transformation_matrix.py
 explorer_preproc.py
  - get_fadeout_multiplier() can be changed to set the rate at which tweets 'degrade' over time in the plot
  - August 22nd: uses the first 2 dimensions from the 3d good faith, as UMAP not run at time of trying
+ - Has the SECONDARY use of creating a merged csv of community archive tweets & their good faith dimensions, as it was doing that anyway
  - has HACK TO LIMIT FILE SIZE. As without that we'd be at a 5gb json output. Use this to determine how much data you generate visuals for
 
+
+## Unused files
+3d_to_2d_umap.py
+ - So can visualise: goes from 3d of good faith to 2d
+ - 23rd Aug 2025: Dont need because (1) unsure how useful 3d data is, and (2) its much nice to plot the original axes so can be clear what they mean
 
 
 ## explorer.html
@@ -51,52 +57,134 @@ Claude thinks Redis would be overkill for this. Use IndexedDb. See 2nd half of c
 
 
 
-## Journal of findings
-
-The first 2 of the 3 dimensions of good faith don't seem amazingly accurate (either due to gpt5-mini's assessments or the CCA transformation not being very good when scaled to all tweets). Source: manual inspection of the explorer.html nooscope.
-
-
 
 ## Single thing being done right now
-Figure out better dimensions for good faith: sincerity and charity are fine, but things can be low on both and just funny, which is also good for the discourse!
+make good 'basin finding' tool:
+ - want it to be standardised function I can apply all over the place
+ - probably best for it to be a fusion of methods, then can see how well they concur
+
+Approaches to bring in:
+ - [TO CHANGE: bring in Drift-field change instead which is similar but more suited to this use case] Optimal Transport with entropic smoothing: converts space to grid and computes minimum flow (energy) to go from snapshot t to t+1. This can be very 'overfitt-y', so the entropic smoothing makes it fit less strongly, which is better when there is more noise. Increase this regularisation parameter 'epsilon' as noise increases (I probably want it to be very high indeed)
+
+ - Graph metastability with time decay: what metric does this give me for basins, and is it overall or per basin, or per basin per timestamp? A: it can be per basin and per time stamp (the latter if I rerun the algo multiple times with different sliding windows, which sounds a good idea)
+
+ - Kernel Density Estimation: get the density of all tweets, accounting for relative importance and fading over time.
+  Uses temporal decay function: `w = engagement_weight * exp(-(t - s)/τ)` where t = time now, s = time posted, and tau is a constant. I can set tau, or have the model learn a value for tau which gives it the most predictive power. gpt5 suggests giving only a few options for tau for an ML model to choose from, to prevent overfitting.
+  Is there a tau-like parameter for spatial decay too? (eg width of contribution of each tweet to overall density) Yes: the bandwidth parameter (h) of KDE.
+
+GPT thoughts on parameter specifying: 'the value at which strength peaks: that’s the “natural” value for that feature the basin.'
+
+
+Other ideas
+```
+
+Optimal Transport with entropic smoothing: converts space to grid and computes minimum flow (energy) to go from snapshot t to t+1. This can be very 'overfitt-y', so the entropic smoothing makes it fit less strongly, which is better when there is more noise. Increase this regularisation parameter 'epsilon' as noise increases (I probably want it to be very high indeed)
+
+
+1) Drift-field change (directly tests “discourse begets discourse”)
+could this work if we dont have actual replies, only spatial closeness? Yes
+It's related to Optical Transport. They both give you “arrows showing how density moves between snapshots.” Intuition of the difference:
+- OT with smoothing = “Imagine you’re solving a logistics problem: every unit of density must be trucked from somewhere at time t to somewhere at time t+1 at minimal cost.”
+- Density-flow drift field = “Imagine you’re watching clouds and measuring how they drift frame-to-frame. You don’t worry about exact conservation; you just see local motion.”
+OT conserves all mass, so mass will be preserved between t and t+1: all the calculations are global and mass is conserved globally.
+
+Drift-field change (think GPT made this up) is better for noise, doesnt preserve mass globally, goes calculations on local levels (ie considers sections of the overall space sequentally and, I think, independently). Noise is controlled via local regularization rather than a globally set 'tau'
+
+I think drift-field change is more suited to our use case than Optical Transport.
+
+
+
+
+8) Cluster tracking + barriers/escapes (pragmatic)
+Idea
+Cluster each time bin (e.g., mean-shift/DBSCAN on KDE modes). Track clusters over time; clusters that persist and pull replies inward are basins.
+What to compute
+Center drift toward high-density cores.
+Inward-move fraction: % of child tweets closer to cluster center than their parents (vs null).
+Escape rate: probability to leave the cluster within
+k
+k days; Barrier = minimal density drop along shortest path to leave (via density-weighted geodesics).
+Why it’s good
+Easy to explain, robust, pairs nicely with visualizations.
+Pitfalls
+Cluster instability; mitigate via stability selection across bandwidths and seeds.
+
+
+Build a kNN graph over tweets with temporal weights (decay) and conversation edges. Run diffusion maps (or Markov stability / PCCA+) to find metastable sets—regions where a random walk gets “trapped.”
+What to compute
+Conductance / normalized cut of sets (lower = stronger basin).
+Spectral gaps: large gap ⇒ clear metastability.
+Mean return / first passage times within sets (escape difficulty).
+Track sets over time to test persistence.
+Why it’s good
+Captures non-convex, multi-basin structure without strong parametric assumptions.
+Pitfalls
+Scaling to 2.2M nodes: use sampling, landmark diffusion, or cluster-then-graph.
+
+
+
+3) Spatio-temporal Hawkes (self-excitation) on regions
+Idea
+Discretize the plane into regions (adaptive cells around candidate basins). Fit a marked Hawkes process where past tweets in region A elevate intensity of future tweets in A with decay
+ϕ
+ϕ. Basins correspond to high self-excitation and low cross-excitation.
+
+
+
+7) SDE + (stochastic) Lyapunov analysis
+SDE in this case is... ?
+```
+
+
+
+For all approaches: compare the findings to randomly sampling from all my tweets (ignoring datetime they were posted), which should be just noise (while maintaining the overall shape of my dataset for good comparisons)
 
 
 
 
 
 ## More to do: prioritise by what is going to help customers achieve their memedriving options
-TODO: plot animation for 'good faith' within a specific low-level topic, where people are more likely to know each other and have communities form
+TODO: consider dimensions I might look in where I'm likely to find basins & reduce to them. One might be 'topics' ie the subject of the idea (which may or may not involve reducing the embeddings down from 768d)
 
-TODO: consider dimensions I might look in where I'm likely to have predictive power
+Figure out better dimensions for good faith: sincerity and charity are fine, but things can be low on both and just funny, which is also good for the discourse!
+could do 'good faith' then add confidence based on how much info, eg 'hahaha' without context cant be interpreted either way
+
+TODO: plot animation for 'good faith' within a specific low-level topic, where people are more likely to know each other and have communities form
 
 TODO: look at v popular tweets: are there any conditions prior to them taking off which suggest high receptivity to that idea?
 
 TODO: plot animation as weather system. Get weather-like formulae for this.
 
-TODO: algorithmically look for 'good faith basins' (want a 'basin identification' tool which generalises)
-
-TODO: plot in general 2d space, measuring good faith some other way
-
 TODO: make some physics-inspired model for impact of a single meme, and explaining trajectory of a meme, and predicting future memespace (and counterfactuals if more memes were to be added beyond those expected, perhap via some kind of monte carlo simulation)
 
-TO RUN: 3d_to_2d_umap.py
- - So can visualise: goes from 3d of good faith to 2d
+
 
 
 
 ## On searching for basins
 
-Things we might do when the above is done:
-1. Instead of user trajectories, look at how discourse begets discourse Do tweets in faith region A tend to generate replies in region B? # Real basin: tweets "pull" responses toward the basin center # Fake basin: responses are random relative to original position
+I want to search for basins in a 3d space, which is a time series of tweets over several years. I can say the datetime each tweet was made, retweets_count and popularity of tweet.
 
-A conservative force field is one where the work done moving a particle from point A to point B depends only on the endpoints, not on the path taken. Reasons memespace is probably non-conservative:
-* External events inject energy (news cycles, political events)
-* History matters (what was said before affects what comes next)
-* Network effects (who's connected to whom)
-* Algorithmic amplification
-However in practice I imagine it’s not a binary classification of conversation force field or otherwise, but degrees of both (eg there may be some basin or pull which dynamically forms, while also a bunch of the above factors are also in play). A better analogy: storm systems - they form around events, persist, then dissipate
+I want a python script which searches for basins and gives me info (quant) on whether they exist. Give me several good approaches - no code at this stage.
 
-basins can also be of different levels of strength (with some minimum threshold before they count).
+When you do make the code borrow these to read in the file: Saved merged file to /Users/adambricknail/Desktop/memedrive_experiments/output_data/community_archive_good_faith_embeddings.csv
+which has a row for each tweet, importance by retweet and favourite, and 'y'=sincerity, 'x'=charity
+```
+df shape: (2196452, 12)
+df cols: Index(['id', 'full_text', 'created_at', 'retweet_count', 'favorite_count',
+    'in_reply_to_status_id', 'in_reply_to_screen_name', 'screen_name',
+    'username', 'datetime', 'x', 'y'],
+    dtype='object')
+```
+
+
+I expect that tweet's effects last for a certain amount of time before disapearing, likely with some kind of decay curve
+
+One way to test if basins exist:
+1. Instead of user trajectories, look at how discourse begets discourse: Do tweets in spacial region A tend to generate replies in region A? Real basin: tweets "pull" responses toward the basin center # Fake basin: responses are random relative to original position
+
+
+basins can be of different levels of strength (with some minimum threshold before they count).
 
 Lyapunov stability analysis determines whether a dynamical system's equilibrium point is stable under small perturbations. Think of it like testing whether a marble in a bowl will return to the bottom if you nudge it slightly. How it works:
 - Find an "energy" function - something that measures how far you are from equilibrium, like height in the bowl
@@ -107,19 +195,30 @@ A: The classical test breaks down, but stochastic extensions exist that are way 
 
 I wouldn’t be surprised if basins aren’t often very small (to point basin may not be the best model - tho they may be!) If I need to make arbitrary cutoffs as to what counts as a basin, consider the cutoff could be considered a hyper parameter in an ‘end to end model’ (ie one which includes pre-proc stages) in predicting movement of discourse
 
-If memes need opposing views to survive (to coexist with), how do I factor that into my model? Would ideally find these memes, and other classes of memes (eg the ‘antimemes’ which dissipate the power of other memes)
-
 What would constitute "real" basins:
 1. Temporal stability - basins persist over time
 2. Flow convergence - trajectories converge toward basin centers
 3. Escape barriers - it takes "energy" to leave basins
 4. Non-random structure - basins aren't just artifacts of clustering algorithm
 
+To consider: The basin detection might be better framed as "persistent interaction patterns" rather than "gravitational attractors."
+
+
+
 Reasons the search for ‘good faith’ basins might fail:
 1. Semantic spaces might not have genuine dynamics (just static similarity)
 2. User behavior might be too noisy to detect coherent flow
 3. Faith dimensions might not be "physical" enough for dynamical analysis
 
-To consider: The basin detection might be better framed as "persistent interaction patterns" rather than "gravitational attractors."
-
 See last few back and forth in Claude chat ‘semantic basins and idea evolution’ on predicting effects of a single tweet, and the effects of more coordinated tweets
+
+
+A conservative force field is one where the work done moving a particle from point A to point B depends only on the endpoints, not on the path taken. Reasons memespace is probably non-conservative:
+* External events inject energy (news cycles, political events)
+* History matters (what was said before affects what comes next)
+* Network effects (who's connected to whom)
+* Algorithmic amplification
+However in practice I imagine it’s not a binary classification of conversation force field or otherwise, but degrees of both (eg there may be some basin or pull which dynamically forms, while also a bunch of the above factors are also in play). A better analogy: storm systems - they form around events, persist, then dissipate
+
+
+If memes need opposing views to survive (to coexist with), how do I factor that into my model? Would ideally find these memes, and other classes of memes (eg the ‘antimemes’ which dissipate the power of other memes)

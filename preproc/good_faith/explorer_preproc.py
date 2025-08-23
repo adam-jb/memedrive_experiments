@@ -149,6 +149,7 @@ def preprocess_tweet_data():
     # 4. Add coordinates to dataframe
     df['x'] = embeddings[:, 0]
     df['y'] = embeddings[:, 1]
+    df['z'] = embeddings[:, 2]  # not used in 2d plot, but for community_archive_good_faith_embeddings.csv
 
     # 5. Filter and clean
     df['datetime'] = pd.to_datetime(df['datetime'])
@@ -175,6 +176,12 @@ def preprocess_tweet_data():
     df['retweet_count'] = df.get('retweet_count', 0).fillna(0).astype(int)
     df['screen_name'] = df['screen_name'].fillna('unknown')
     df['full_text'] = df['full_text'].fillna('')
+
+    out_path = Path('~/Desktop/memedrive_experiments/output_data/community_archive_good_faith_embeddings.csv').expanduser()
+    df.to_csv(out_path, index = False)
+    print(f"Saved merged file to {out_path}")
+    print(f'df shape: {df.shape}')
+    print(f'df cols: {df.columns}')
 
     # 8. Data quality summary
     print(f"\nData Quality Summary:")
