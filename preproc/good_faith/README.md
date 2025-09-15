@@ -57,34 +57,138 @@ Claude thinks Redis would be overkill for this. Use IndexedDb. See 2nd half of c
 
 
 
+## In ../basin_finder/ folder
+
+make_random_sample.py: makes random sample of data which has 5 basins, to test if they can be found by our prototype tools
+
+cluster_tracking.py: finds the correct number basins on test (5), but finds 6 on train for some reason.
+improvements:
+ - have something where it judges how well it can reasonably do with the given sample size (eg how likely to find the right clusters, how many params can reasonably be optimised... factoring in the level of apparent noise in the data and sample size - as it did better when i increased random sample from 5k to 100k)
+ - change it so it tests basins found at given times (eg get basin tests over time)
+- find basins probabistically, rather than binary did/didnt find a basin
+- a cluster is not the same as a basin: we are using cluster methods with temporal component to find basins: that is the final aim so should be doing that
+- add code to predict if a basin with get stronger or weaker (ie if forming or falling apart, or maintaining) based on some time series of basin (the idea is to be able to model the trajectory of a fledgling basin, and ultimately calculate the impact of additional tweets on whether the basin becomes strong or something like self-sustaining)
+ideally this would be set up such that I can use a differnt method but with the same overall params, so I can bundle them together in ensemble easily
+GIVE TO GPT5 TO DO THIS
+
+Among other things it does bootstrapped clustering:
+- For each bin, you don’t just run HDBSCAN once.
+- You resample (bootstrap) the points and rerun HDBSCAN many times (say 20–50).
+- Each run produces a set of cluster labels. Because HDBSCAN is sensitive to sampling and min cluster size, the labels may vary slightly.
+- Then vote for consensus
+
+Qs - please dont rewrite any code in response to these
+"min_cluster_frac": 0.05, should be smaller, no? 5% of all obs seems big for a basin: some will be much smaller
+"recency_decay_lambda": 0.0,: whats a good value? Can this be optimised from a few options reasonably?
+
+
+cluster_tracking3.py:
+ - predicts 'Continuation AUROC': whether a cluster will continue to exist in the next time bin (after finding said clusters)
+
+```
+Purpose
+Discover basins (temporal clusters) from tweet embeddings.
+Optimize for forward-time predictive skill (not static clustering scores).
+Produce probabilistic continuation between bins and expected next-bin sizes.
+Perform early detection of fledgling clusters likely to become sustained.
+Inputs & Assumptions
+CSV columns:
+datetime (parseable timestamps)
+Embedding columns named e* (e.g., e0, e1, …)
+Optional: retweet_count, favourite_count (for popularity weighting)
+Paths configured via INPUT_FILE and OUTPUT_DIR in the script.
+Pipeline Overview
+Temporal split: chronological train/test using train_split (default 0.6).
+Binning: fixed windows of bin_size_days.
+Consensus clustering per bin:
+Bootstrap HDBSCAN runs → co-assignment matrix → Agglomerative consensus clusters.
+Bootstrap sampling probabilities combine popularity + within-bin recency.
+Tracking across bins:
+Hard Hungarian matching (distance scaled by cluster confidences) → basin timelines.
+Soft next-bin matching (probabilistic continuation):
+For each cluster at t: compute probabilities over clusters at t+1 and a null (“dies”) option.
+Yields p_cont (probability of continuation) and expected next size.
+Forward-chaining evaluation (rolling):
+Train on history up to t−1, evaluate on t, aggregate metrics across all steps.
+Popularity & Recency Weighting (for consensus bootstrap)
+Popularity: w_pop = 1 + log(1 + RT + α·Fav) where α ∈ {0.5, 1.0, 2.0}.
+Within-bin recency: w_recency = exp(-λ · Δdays_to_bin_end) where λ ∈ {0, ln(2)/bin, ln(2)/(bin/2)}.
+Sampling probability: p ∝ w_pop × w_recency (normalized per bin).
+Soft Next-Bin Matching (Probabilistic Continuation)
+Score for mapping cluster i@t → j@t+1: s_ij = exp(-d_ij / τ) × conf_i × conf_j × prior_j
+d_ij: center distance
+τ: temperature (auto from median pairwise distance)
+conf_*: consensus confidence
+prior_j: proportional to cluster size (toggleable)
+Null (“dies”) score: s_iØ = exp(-γ) (default γ = 1.0)
+Normalize per previous cluster: p_ij = s_ij / (s_iØ + Σ_j s_ij), p_null = s_iØ / (s_iØ + Σ_j s_ij), p_cont = 1 − p_null
+Expected next size: E[size_{t+1}] = Σ_j p_ij · size_j
+Hyperparameter Optimization (Forward-Chaining on Train)
+Grid:
+bin_size_days ∈ {5, 7, 14}
+min_cluster_frac ∈ {0.002, 0.005, 0.01, 0.02} (per-bin min = max(global_min, min_cluster_frac × bin_points))
+recency_decay_lambda ∈ {0, ln(2)/bin, ln(2)/(bin/2)}
+Popularity α ∈ {0.5, 1.0, 2.0}
+Objective (default): continuation_auroc (higher is better)
+Tie-breakers (in order):
+continuation_brier (smaller)
+continuation_logloss (smaller)
+size_mae (smaller)
+early_kappa_like (larger)
+Artifact: tuning_results.csv with all metrics and best early-detection settings per combo.
+Early Detection (Enabled by Default)
+Goal: Rank fledgling clusters at time t that will become sustained soon.
+Fledgling: size_t ≤ max(adaptive_min_cluster_size, bin’s size 25th percentile).
+Sustained: within the next N bins, size ≥ T for ≥ S consecutive bins.
+T = quantile of cluster sizes over train (Tq ∈ {0.5, 0.6})
+N ∈ {2, 3}, S ∈ {1, 2}
+Model: lightweight logistic regression, trained rolling on history, scoring fledglings at t.
+k for precision: k = early_k_frac × (# fledgling candidates at t), with early_k_frac ∈ {0.05, 0.10}.
+Metrics:
+precision@k
+Kappa-like lift: (P@k − π) / (1 − π), where π is prevalence among candidates (random baseline).
+Tuning: small grid over (N, S, Tq, k_frac); best early metrics are reported for the top combo.
+Metrics (Computed per Combo)
+Continuation (probabilistic): AUROC, Brier, LogLoss using p_cont
+Next-bin size: MAE, RMSE using expected size from soft matching
+Direction (grow vs shrink): Accuracy, F1 (no-continuation counted as shrink)
+Early detection: precision@k, kappa-like lift
+Final Run (After Tuning)
+Re-run pipeline on train and test using best parameters.
+Validation summary: compares train/test basin stats (duration/size similarity) and reports overfitting risk.
+Outputs
+tuning_results.csv: metrics per hyperparam combo (incl. best early-detection settings).
+train_basins_summary.csv: per-basin stats on train (duration, avg/total size, stability, trend slope/R², direction, confidence).
+test_basins_summary.csv: same for test.
+Console logs: chosen best parameters and timing breakdowns.
+Config Knobs (Key)
+Binning: bin_size_days, bin_size_candidates
+Consensus: n_bootstrap, consensus_max_clusters
+HDBSCAN minimums: hdbscan_min_cluster_size_global (auto if None), min_cluster_frac
+Weighting: engagement_alphas, automatic recency_decay_lambda grid per bin size
+Soft match: softmatch_gamma, softmatch_use_prior, softmatch_temperature_mode
+Early detection: early_enabled (default True), early_N_candidates, early_S_candidates, early_Tq_candidates, early_k_frac_candidates
+Objective: objective_metric (default continuation AUROC), tie-breakers as above
+Misc: train_split, random_state, max_combos (cap grid size)
+CLI Flags
+--bins, -b: override bin size for a constrained grid
+--n_boot: override number of bootstrap runs
+--min_frac: override min_cluster_frac
+--no_tune: skip tuning and run directly with current config (not recommended)
+Dependencies
+Python 3.8+, numpy, pandas, scikit-learn, scipy, hdbscan
+Performance Tips
+Full grid size: 3 × 4 × 3 × 3 = 108 combos. Reduce via max_combos or narrower candidate lists.
+For faster iteration, lower n_bootstrap during tuning (e.g., 20) and restore to 30+ for the final pass.
+```
+
+
+
 ## Single thing being done right now
 make good 'basin finding' tool:
- - want it to be standardised function I can apply all over the place
- - probably best for it to be a fusion of methods, then can see how well they concur. Could include any which have predictive power beyond some threshold... tho the basins have to be there to detect (could make some fake data which I know has basins to test this, which is smaller dataset so I can be sure the code works, while being same structure, col names, etc, as the main dataset); this might involve making my pipelines more unified, and functionalised (so can point at different files).
- want to ensure it can scale to different numbers of dimensions in embedding space
- >>try claude code?
-
-
-make a func to make and store arbitrary embeddings data, with labels
-
-base it on real labels of tweets from:
-df = pd.read_parquet('~/Desktop/memedrive_experiments/input_data/community_archive.parquet')
-[dont actually read the file but use the col names: datetime, full_text]
-
-the fake datetimes should be better 1st jan 2023 and 28th feb 2023
-
-and make fake separate embeddings pertaining to a sample of these
-
-the embeddings should be in 2d space
-
-ensure that there are genuine clusters & noise in the data, and that the clusters dont move around much over time
-
-make a final df which has the df fields and the embedding coords, where all embeding fields start with 'e' so can find them automatically if they scale
-
-save output file without timestamp in ~/Desktop/memedrive_experiments/output_data/basin_finder/
-
-
-
+ - for performance, will want to test against the actual known params (could make meta data of these in the data creation script, so can get that info later)
+  - BUT A BETTER THING TO TEST AGAINST would be the position of all actual tweets N days into the future
+these two things are separate things which could be aimed for
 
 
 
@@ -118,6 +222,9 @@ Psuudocode:
 Likely isue with cluster tracking
 - Cluster instability; mitigate via stability selection across bandwidths and seeds.
 ```
+NEED TO: ensure the model isnt overfitting all the params I give (eg temporal decay) - there should be a way to test this analogous to train/test in ML
+
+
 
 - Spatio-temporal Hawkes (self-excitation) on regions
 
