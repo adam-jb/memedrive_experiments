@@ -45,6 +45,7 @@ the column 'datetime' is in this format: 2024-01-07 20:49:34+00:00
 
 
 
+
 ## recent things done
 
 - edit evaluate_model() in framework.py so it takes weighted mean across all weeks, by count of tweets for each week, not simple mean
@@ -56,7 +57,7 @@ want field probability approach instead, where field can flex in harshness to fi
 one musing on this: is there a way to have the densities be more than just collections of circles (or close to circles) eg a way to allow predictions with any shape of field? Or could one way be to make predictions as a dense grid (Eg 500x500) and then put
   gausians around the tweets themselves? 
 
-implement the field density approach to eval metric, replace PWS:
+implemented the field density approach to eval metric, calling it Field Density Score (FDS):
 - have the 'trained' model return an N*N grid, each of which is the relative probability of a tweet appearing there in the next time unit (week atm)
 - the average probability of these should be 1, so the mean probability of all cells is 1
 - the final metric could be the weighted average of the square each tweet from the next week appears on, with the weighting being the importance of that tweet
@@ -72,6 +73,33 @@ Add parameter in main runner, which if set leads to making an animation with 2 f
 
 implement 'drift field' modelling approach, in new script under models/ folder
 
+vague-ish details below of how this might look
+
+involves a mix of momentum (physics-based) of things, with uncertainty of that momentum, plus extra source of uncertainty of not knowing where tweets are going to be bc they are just hard to predict. The underlying theory is that there is some conservation of momentum between tweets. 
+
+IMPORTANT: Might want to a way to look at tweets day to day, so we're predicting with more temporal granularity: could improve the performance of the model if it can harness that level of detail
+
+want to optimise how diffuse the predicted probability density is such that it maximises FDS .
+
+1) Drift-field change (directly tests “discourse begets discourse”)
+could this work if we dont have actual replies, only spatial closeness? Yes
+It's related to Optical Transport. They both give you “arrows showing how density moves between snapshots.” Intuition of the difference:
+- OT with smoothing = “Imagine you’re solving a logistics problem: every unit of density must be trucked from somewhere at time t to somewhere at time t+1 at minimal cost.”
+- Density-flow drift field = “Imagine you’re watching clouds and measuring how they drift frame-to-frame. You don’t worry about exact conservation; you just see local motion.”
+OT conserves all mass, so mass will be preserved between t and t+1: all the calculations are global and mass is conserved globally.
+
+Drift-field change (think GPT made this up) is better for noise, doesnt preserve mass globally, goes calculations on local levels (ie considers sections of the overall space sequentally and, I think, independently). Noise is controlled via local regularization rather than a globally set 'tau'
+
+I think drift-field change is more suited to our use case than Optical Transport.
+
+
+
+
+## Notes for using the model with customers
+
+Assuming we get a well calibrated model wihch is sensitive to inputs, our Field Density Score metric can be used to clearly tell the expected impact of how many tweets of a given sentiment their social media campaign will lead to, inc the movements in the broader 'weather fronts' (which could be simulated N steps into the future via stepwise Monte Carlo simulations of the model). Would want to link the expected increase in tweets to meaning for the customer (ie it is an indicator of broader sentiment, where we treat the movements in tweets as representative of movement in broader un-tweeted sentiment). For the latter claim would want to do a quick lit review to check how strongly that holds up (I imagine it holds up a bit, but not perfectly): if can quantify this extra source of uncertainty then that would be anaytically great, but may not add much value to customers (product might already be good enough).
+
+Add option to make bespoke versions for customers, which zoom in on particular areas. to implement: make an optional param which lets the users zoom in on a particular topic, defined as an N-dimensional box, and we only consider tweets in that box when evaluating (tho the training data can still use the full canvas, events outside the box could have predictive power so good to give the model access to this). 
 
 
 
@@ -82,7 +110,8 @@ implement 'drift field' modelling approach, in new script under models/ folder
 - make clear (written instructions) how to adapt the testing framework for other embeddings of tweets
 - map out all files, categorise them, and make clear where things might want to change
 
-Add option to make bespoke versions for customers, which zoom in on particular areas. to implement: make an optional param which lets the users zoom in on a particular topic, defined as an N-dimensional box, and we only consider tweets in that box when evaluating (tho the training data can still use the full canvas, events outside the box could have predictive power so good to give the model access to this). 
+allow predictions to be made in embeddings of over 2 dimensions (this may already be possible - am not sure)
+
 
 
 
