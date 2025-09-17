@@ -47,6 +47,7 @@ the column 'datetime' is in this format: 2024-01-07 20:49:34+00:00
 
 ## TO DO NEXT (in this order)
 - add parameter to run_test.py which sets the date window for your input data
+- understand why baselining has no predictive power: I think it should so thats a bad sign
 - get better understanding of how precision-weighted scoring works, with worked examples written for clarity and drawn spatial diagrams, labelled
 - make clearer in file names that testing framework is set up for good faith embeddings
 - make clear (written instructions) how to adapt the testing framework for other embeddings of tweets
