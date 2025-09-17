@@ -55,8 +55,8 @@ the column 'datetime' is in this format: 2024-01-07 20:49:34+00:00
 
 ## TO DO NEXT (in this order)
 - add option of using 'field based' approach to probability density, rather than grid of probability densities. Need ideas to do this...
-- understand why baselining has no predictive power: I think it should so thats a bad sign
-- get better understanding of how precision-weighted scoring works, with worked examples written for clarity and drawn spatial diagrams, labelled
+want field probability approach instead, where field can flex in harshness to fit needs of customers
+
 - make clearer in file names that testing framework is set up for good faith embeddings
 - make clear (written instructions) how to adapt the testing framework for other embeddings of tweets
 - map out all files, categorise them, and make clear where things might want to change
@@ -68,7 +68,7 @@ the column 'datetime' is in this format: 2024-01-07 20:49:34+00:00
 
 
 
-## summary of claude investigation into why the scores are so low, even though visually the density looks about right
+## Precision weighted score is too harsh a formula: summary of claude investigation into why the scores are so low, even though visually the density looks about right
 ```
 Looking at the evaluation results, I can now explain why the scores are low:
 
