@@ -64,12 +64,16 @@ implement the field density approach to eval metric, replace PWS:
 - start with a probabilistic grid
 This is easier to understand than more complicated things, though may be insensitive to modelling improvements which are valuable for customers: might make bespoke versions for customers, which zoom in on particular areas. 
 
+Add parameter in main runner, which if set leads to making an animation with 2 frames for each prediction: one with the predicted density, and then a 2nd with the same density and the actual tweets overlaid. Should set this for each model, so can decdie which get animated. Animations should save in 'image_outputs' folder
+
+
 
 ## TO DO NOW in order
 
-Add parameter in main runner, which if set leads to making an animation with 2 frames for each prediction: one with the predicted density, and then a 2nd with the same density and the actual tweets overlaid. Should set this for each model, so can decdie which get animated. Animations should save in 'image_outputs' folder
+implement 'drift field' modelling approach, in new script under models/ folder
 
-Add option to make bespoke versions for customers, which zoom in on particular areas. to implement: make an optional param which lets the users zoom in on a particular topic, defined as an N-dimensional box, and we only consider tweets in that box
+
+
 
 
 
@@ -77,6 +81,9 @@ Add option to make bespoke versions for customers, which zoom in on particular a
 - make clearer in file names that testing framework is set up for good faith embeddings
 - make clear (written instructions) how to adapt the testing framework for other embeddings of tweets
 - map out all files, categorise them, and make clear where things might want to change
+
+Add option to make bespoke versions for customers, which zoom in on particular areas. to implement: make an optional param which lets the users zoom in on a particular topic, defined as an N-dimensional box, and we only consider tweets in that box when evaluating (tho the training data can still use the full canvas, events outside the box could have predictive power so good to give the model access to this). 
+
 
 
 ## Files setting out approaches to ultimately move to new model framework 

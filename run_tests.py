@@ -18,9 +18,17 @@ def main():
     start_date = '2023-01-01'  # e.g., '2024-01-01'
     end_date =  '2024-12-31'    # e.g., '2024-12-31'
 
+    # Models to animate (set to empty list to disable)
+    animate_models = ['Gaussian Smoothed Historical']
+
+    # Grid resolution (e.g., 100 for 100x100 grid)
+    grid_size = 200
+
     print("Initializing testing framework...")
     framework = TestingFramework(csv_path, sample_size=sample_size,
-                                start_date=start_date, end_date=end_date)
+                                start_date=start_date, end_date=end_date,
+                                animate_models=animate_models,
+                                grid_size=grid_size)
 
     # Add baseline models
     framework.add_model(RandomModel())

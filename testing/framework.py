@@ -135,6 +135,10 @@ class ProbabilisticEvaluator:
     def __init__(self, grid_bounds: Tuple[Tuple[float, float], Tuple[float, float]] = None):
         # Default bounds for 2D good-faith space - will be updated based on data
         self.grid_bounds = grid_bounds
+        # Models to create animations for (set by TestingFramework)
+        self.animate_models = []
+        # Storage for animation frames
+        self.animation_frames = {}
 
     def create_density_grid(self, positions: np.ndarray, grid_size: int = 100,
                            bandwidth: float = 0.1) -> np.ndarray:
@@ -298,6 +302,91 @@ class ProbabilisticEvaluator:
 
         print(f"  Saved heatmap: {filepath}")
 
+
+    def _create_model_animations(self):
+        """Create final animations from collected frames"""
+        import matplotlib.animation as animation
+
+        for model_name, frames in self.animation_frames.items():
+            if not frames:
+                continue
+
+            print(f"Creating animation for {model_name} with {len(frames)*2} frames...")
+
+            fig, ax = plt.subplots(1, 1, figsize=(10, 8))
+
+            # Determine global bounds from all frames
+            all_x_mins = [frame['grid_bounds'][0][0] for frame in frames]
+            all_x_maxs = [frame['grid_bounds'][0][1] for frame in frames]
+            all_y_mins = [frame['grid_bounds'][1][0] for frame in frames]
+            all_y_maxs = [frame['grid_bounds'][1][1] for frame in frames]
+
+            global_x_min, global_x_max = min(all_x_mins), max(all_x_maxs)
+            global_y_min, global_y_max = min(all_y_mins), max(all_y_maxs)
+
+            def animate(frame_idx):
+                ax.clear()
+
+                # Each week has 2 frames: prediction only, then prediction + tweets
+                week_idx = frame_idx // 2
+                is_second_frame = frame_idx % 2 == 1
+
+                if week_idx >= len(frames):
+                    return
+
+                frame_data = frames[week_idx]
+                predicted_density = frame_data['predicted_density']
+                true_positions = frame_data['true_positions']
+                year = frame_data['year']
+                week = frame_data['week']
+                field_score = frame_data['field_score']
+
+                # Show predicted density heatmap
+                im = ax.imshow(predicted_density,
+                              extent=[global_x_min, global_x_max, global_y_min, global_y_max],
+                              origin='lower', cmap='viridis', alpha=0.8)
+
+                if not is_second_frame:
+                    # Frame 1: Prediction only
+                    title = f'{model_name}\nWeek {year}-{week} | Prediction Only | Score: {field_score:.3f}'
+                else:
+                    # Frame 2: Prediction + actual tweets overlaid
+                    title = f'{model_name}\nWeek {year}-{week} | + Actual Tweets | Score: {field_score:.3f}'
+
+                    # Overlay actual tweet positions
+                    if len(true_positions) > 0:
+                        ax.scatter(true_positions[:, 0], true_positions[:, 1],
+                                  c='red', s=40, marker='x', linewidth=2, alpha=0.9)
+
+                ax.set_title(title, fontsize=11, fontweight='bold')
+                ax.set_xlabel('Charity →', fontsize=10)
+                ax.set_ylabel('Sincerity →', fontsize=10)
+                ax.set_xlim(global_x_min, global_x_max)
+                ax.set_ylim(global_y_min, global_y_max)
+
+                # Add frame counter
+                ax.text(0.02, 0.98, f'Frame {frame_idx+1}/{len(frames)*2}',
+                       transform=ax.transAxes, fontsize=9,
+                       verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+
+            # Create animation: 2 frames per week, 1.5 seconds per frame
+            total_frames = len(frames) * 2
+            anim = animation.FuncAnimation(fig, animate, frames=total_frames,
+                                         interval=1500, repeat=True)
+
+            # Save animation
+            clean_model_name = model_name.replace(' ', '_').replace('(', '').replace(')', '').replace('=', '').replace('.', '')
+            filename = f"model_animation_{clean_model_name}.gif"
+            filepath = os.path.join('image_outputs', filename)
+
+            anim.save(filepath, writer='pillow', fps=0.67, dpi=100)
+            plt.close()
+
+            print(f"  Saved: {filepath}")
+
+        # Clear frames after creating animations
+        self.animation_frames.clear()
+
     def evaluate_model(self, model: TweetPredictor,
                       train_positions: np.ndarray, train_times: np.ndarray,
                       test_positions: np.ndarray, test_times: np.ndarray,
@@ -380,9 +469,27 @@ class ProbabilisticEvaluator:
             scores.append(field_score)
             tweet_counts.append(len(week_positions))
 
-            # Plot heatmap for HistoricalAverageModel or GaussianSmoothed models
-            if "Historical Average" in model.get_name() or "Gaussian Smoothed" in model.get_name():
-                self._plot_prediction_heatmap(predicted_density, true_density, year, week, model.get_name(), field_score)
+            # Plot heatmap for HistoricalAverageModel or GaussianSmoothed models (disabled)
+            # if "Historical Average" in model.get_name() or "Gaussian Smoothed" in model.get_name():
+            #     self._plot_prediction_heatmap(predicted_density, true_density, year, week, model.get_name(), field_score)
+
+            # Collect animation frames for specified models
+            should_animate = any(animate_name in model.get_name() for animate_name in self.animate_models)
+            if should_animate:
+                model_name = model.get_name()
+                if model_name not in self.animation_frames:
+                    self.animation_frames[model_name] = []
+
+                # Store frame data for this week
+                frame_data = {
+                    'predicted_density': predicted_density.copy(),
+                    'true_positions': week_positions.copy(),
+                    'grid_bounds': grid_bounds,
+                    'year': year,
+                    'week': week,
+                    'field_score': field_score
+                }
+                self.animation_frames[model_name].append(frame_data)
 
             # KL divergence (traditional metric)
             pred_norm = predicted_density / predicted_density.sum() + 1e-10
@@ -411,10 +518,13 @@ class TestingFramework:
     """Main framework for testing tweet prediction models"""
 
     def __init__(self, data_path: str, sample_size: Optional[int] = None,
-                 start_date: Optional[str] = None, end_date: Optional[str] = None):
+                 start_date: Optional[str] = None, end_date: Optional[str] = None,
+                 animate_models: list = None, grid_size: int = 100):
         self.data_loader = DataLoader(data_path, sample_size, start_date, end_date)
         self.evaluator = ProbabilisticEvaluator()
         self.models = []
+        self.animate_models = animate_models or []  # Models to create animations for
+        self.grid_size = grid_size  # Grid resolution
 
     def add_model(self, model: TweetPredictor):
         """Add a model to be tested"""
@@ -437,10 +547,17 @@ class TestingFramework:
 
         for model in self.models:
             print(f"\nEvaluating {model.get_name()}...")
+            # Pass animation models to evaluator
+            self.evaluator.animate_models = self.animate_models
             scores = self.evaluator.evaluate_model(
-                model, train_pos, train_times, test_pos, test_times
+                model, train_pos, train_times, test_pos, test_times, self.grid_size
             )
             results[model.get_name()] = scores
+
+        # Create animations after all models are evaluated
+        if self.animate_models:
+            print(f"\nCreating animations for {len(self.evaluator.animation_frames)} models...")
+            self.evaluator._create_model_animations()
 
         return results
 
