@@ -262,6 +262,59 @@ class ProbabilisticEvaluator:
 
         return density / density_sum
 
+    def field_density_score(self, predicted_grid: np.ndarray,
+                          true_tweet_positions: np.ndarray, grid_bounds: tuple,
+                          tweet_importance_weights: np.ndarray = None) -> float:
+        """Calculate field density score based on tweet positions on probability grid
+
+        Args:
+            predicted_grid: N×N grid where each cell is relative probability (mean=1)
+            true_tweet_positions: Actual tweet positions in coordinate space
+            grid_bounds: ((x_min, x_max), (y_min, y_max)) bounds of the grid
+            tweet_importance_weights: Optional weights for each tweet (default: all equal)
+
+        Returns:
+            Score where:
+            - 1.0 = random performance (baseline)
+            - 0.0 = perfectly wrong (impossible worst case)
+            - >1.0 = better than random (higher is better)
+        """
+        if len(true_tweet_positions) == 0:
+            return 1.0  # No tweets to evaluate
+
+        # Ensure predicted grid has mean = 1 (proper probability field)
+        predicted_grid = predicted_grid / predicted_grid.mean()
+
+        # Default to equal importance for all tweets
+        if tweet_importance_weights is None:
+            tweet_importance_weights = np.ones(len(true_tweet_positions))
+
+        # Normalize importance weights
+        tweet_importance_weights = tweet_importance_weights / tweet_importance_weights.sum()
+
+        # Map tweet positions to grid coordinates
+        (x_min, x_max), (y_min, y_max) = grid_bounds
+        grid_size = predicted_grid.shape[0]
+
+        scores = []
+        for tweet_pos in true_tweet_positions:
+            # Convert tweet position to grid indices
+            x_idx = int((tweet_pos[0] - x_min) / (x_max - x_min) * (grid_size - 1))
+            y_idx = int((tweet_pos[1] - y_min) / (y_max - y_min) * (grid_size - 1))
+
+            # Clamp to grid bounds
+            x_idx = max(0, min(grid_size - 1, x_idx))
+            y_idx = max(0, min(grid_size - 1, y_idx))
+
+            # Get probability at this tweet's location
+            tweet_probability = predicted_grid[y_idx, x_idx]
+            scores.append(tweet_probability)
+
+        # Calculate weighted average score
+        weighted_score = np.average(scores, weights=tweet_importance_weights)
+
+        return weighted_score
+
     def precision_weighted_brier_score(self, predicted_density: np.ndarray,
                                      true_density: np.ndarray, tolerance_radius: int = 2) -> float:
         """Calculate Brier-like score that rewards precision with spatial forgiveness
@@ -312,13 +365,13 @@ class ProbabilisticEvaluator:
         return forgiving_density / forgiving_density.sum()
 
     def _plot_prediction_heatmap(self, predicted_density: np.ndarray, true_density: np.ndarray,
-                                year: int, week: int, model_name: str, pws_score: float):
+                                year: int, week: int, model_name: str, field_score: float):
         """Plot heatmap of predictions vs true density"""
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
 
         # Plot predicted density
         im1 = ax1.imshow(predicted_density, cmap='viridis', origin='lower')
-        ax1.set_title(f'{model_name}\nPredicted Density - Week {year}-{week}\nPWS: {pws_score:.4f}')
+        ax1.set_title(f'{model_name}\nPredicted Density - Week {year}-{week}\nField Score: {field_score:.4f}')
         ax1.set_xlabel('Charity →')
         ax1.set_ylabel('Sincerity →')
         plt.colorbar(im1, ax=ax1, label='Probability Density')
@@ -402,38 +455,29 @@ class ProbabilisticEvaluator:
             # Create true density from observed positions (point-based, no Gaussians)
             true_density = self.create_point_based_density(week_positions, grid_size)
 
+            # Calculate grid bounds for field density score
+            if len(week_positions) > 0:
+                x_min, x_max = week_positions[:, 0].min(), week_positions[:, 0].max()
+                y_min, y_max = week_positions[:, 1].min(), week_positions[:, 1].max()
 
-            # Calculate scores with spatial tolerance
-            pws = self.precision_weighted_brier_score(predicted_density, true_density,
-                                                    self.tolerance_radius)
-            scores.append(pws)
+                # Add padding (same as used in density creation)
+                x_padding = max(0.5, (x_max - x_min) * 0.2)
+                y_padding = max(0.5, (y_max - y_min) * 0.2)
+
+                grid_bounds = ((x_min - x_padding, x_max + x_padding),
+                              (y_min - y_padding, y_max + y_padding))
+            else:
+                # Default bounds if no tweets
+                grid_bounds = ((0, 8), (0, 6))
+
+            # Calculate new field density score (replaces PWS)
+            field_score = self.field_density_score(predicted_density, week_positions, grid_bounds)
+            scores.append(field_score)
             tweet_counts.append(len(week_positions))
-
-            # Check for PWS = 0 and diagnose the issue
-            if pws == 0.0 and "Gaussian Smoothed" in model.get_name():
-                pred_norm = predicted_density / predicted_density.sum()
-                true_norm = true_density / true_density.sum()
-
-                print(f"⚠️  PWS = 0 detected for {model.get_name()} - Week {year}-{week}")
-                print(f"   Predicted density range: [{predicted_density.min():.6f}, {predicted_density.max():.6f}]")
-                print(f"   Predicted density sum: {predicted_density.sum():.6f}")
-                print(f"   True density non-zero cells: {(true_density > 0).sum()}")
-                print(f"   True density range: [{true_density.min():.6f}, {true_density.max():.6f}]")
-
-                # Check if prediction is all zeros or uniform
-                if predicted_density.max() == predicted_density.min():
-                    print(f"   ISSUE: Predicted density is completely uniform!")
-                elif predicted_density.sum() == 0:
-                    print(f"   ISSUE: Predicted density sums to zero!")
-                elif (true_density > 0).sum() == 0:
-                    print(f"   ISSUE: True density has no tweets!")
-                else:
-                    print(f"   ISSUE: Unknown cause of PWS=0")
-                print()
 
             # Plot heatmap for HistoricalAverageModel or GaussianSmoothed models
             if "Historical Average" in model.get_name() or "Gaussian Smoothed" in model.get_name():
-                self._plot_prediction_heatmap(predicted_density, true_density, year, week, model.get_name(), pws)
+                self._plot_prediction_heatmap(predicted_density, true_density, year, week, model.get_name(), field_score)
 
             # KL divergence (traditional metric)
             pred_norm = predicted_density / predicted_density.sum() + 1e-10
@@ -451,7 +495,7 @@ class ProbabilisticEvaluator:
         weighted_kl = np.sum(kl_divergences * tweet_counts) / np.sum(tweet_counts) if np.sum(tweet_counts) > 0 else np.mean(kl_divergences)
 
         return {
-            'precision_weighted_score': weighted_pws,
+            'field_density_score': weighted_pws,  # Now contains field density scores
             'kl_divergence': weighted_kl,
             'score_std': np.std(scores),
             'weeks_evaluated': len(scores),
@@ -501,12 +545,11 @@ class TestingFramework:
         print("\n" + "="*50)
         print("EVALUATION RESULTS")
         print("="*50)
-        print(f"Spatial Tolerance: {self.evaluator.tolerance_radius} grid cells")
-        print(f"(0=harsh/exact, {self.evaluator.tolerance_radius}=generous)")
+        print("Field Density Score: 1.0=random, >1.0=better than random, higher=better")
 
         for model_name, scores in results.items():
             print(f"\n{model_name}:")
-            print(f"  Precision-Weighted Score: {scores['precision_weighted_score']:.4f}")
+            print(f"  Field Density Score: {scores['field_density_score']:.4f}")
             print(f"  KL Divergence: {scores['kl_divergence']:.4f}")
             print(f"  Score Std Dev: {scores['score_std']:.4f}")
             print(f"  Weeks Evaluated: {scores['weeks_evaluated']}")

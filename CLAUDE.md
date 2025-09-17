@@ -56,16 +56,21 @@ want field probability approach instead, where field can flex in harshness to fi
 one musing on this: is there a way to have the densities be more than just collections of circles (or close to circles) eg a way to allow predictions with any shape of field? Or could one way be to make predictions as a dense grid (Eg 500x500) and then put
   gausians around the tweets themselves? 
 
-
-
-## TO DO NEXT (in this order)
-
 implement the field density approach to eval metric, replace PWS:
 - have the 'trained' model return an N*N grid, each of which is the relative probability of a tweet appearing there in the next time unit (week atm)
 - the average probability of these should be 1, so the mean probability of all cells is 1
 - the final metric could be the weighted average of the square each tweet from the next week appears on, with the weighting being the importance of that tweet
 - so a final metric of 1 should be equivalent to randomness; 0 means that the model is perfectly wrong (the most wrong it could be); and the maximum is huge: a proportion of how much better than randomness it is
 - start with a probabilistic grid
+This is easier to understand than more complicated things, though may be insensitive to modelling improvements which are valuable for customers: might make bespoke versions for customers, which zoom in on particular areas. 
+
+
+## TO DO NOW in order
+
+Delete dead code, eg do i still need precision_weighted_brier_score() and other thing slike that? now im not using Precision weighted score 
+
+Add option to make bespoke versions for customers, which zoom in on particular areas. to implement: make an optional param which lets the users zoom in on a particular topic, defined as an N-dimensional box, and we only consider tweets in that box
+
 
 
 

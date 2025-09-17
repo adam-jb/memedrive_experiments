@@ -29,9 +29,8 @@ def main():
 
     # Add baseline models
     framework.add_model(RandomModel())
-    #framework.add_model(HistoricalAverageModel(bandwidth=0.1))
+    framework.add_model(HistoricalAverageModel(bandwidth=0.1))
     framework.add_model(GaussianSmoothedHistoricalModel(gaussian_bandwidth=0.05))
-    #framework.add_model(GaussianSmoothedHistoricalModel(gaussian_bandwidth=0.1))
     #framework.add_model(WeeklyAverageModel(bandwidth=0.2))
 
     results = framework.run_evaluation(test_weeks=10)
