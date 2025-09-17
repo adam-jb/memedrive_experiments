@@ -45,8 +45,16 @@ the column 'datetime' is in this format: 2024-01-07 20:49:34+00:00
 
 
 
-## TO DO NEXT (in this order)
+## recent things done
+
+- edit evaluate_model() in framework.py so it takes weighted mean across all weeks, by count of tweets for each week, not simple mean
 - add parameter to run_test.py which sets the date window for your input data
+
+
+
+
+## TO DO NEXT (in this order)
+- add option of using 'field based' approach to probability density, rather than grid of probability densities. Need ideas to do this...
 - understand why baselining has no predictive power: I think it should so thats a bad sign
 - get better understanding of how precision-weighted scoring works, with worked examples written for clarity and drawn spatial diagrams, labelled
 - make clearer in file names that testing framework is set up for good faith embeddings
@@ -54,9 +62,79 @@ the column 'datetime' is in this format: 2024-01-07 20:49:34+00:00
 - map out all files, categorise them, and make clear where things might want to change
 
 
-## Files to ultimately move to new model framework 
+## Files setting out approaches to ultimately move to new model framework 
 - Approaches described in preproc/good_faith/READMD.md
 
+
+
+
+## summary of claude investigation into why the scores are so low, even though visually the density looks about right
+```
+Looking at the evaluation results, I can now explain why the scores are low:
+
+  Root Cause: Precision-Weighted Score Penalizes Confidence Mismatch
+
+  Key Findings:
+
+  1. Random Uniform vs Historical Average:
+    - Random: PWS = 0.0001 (terrible but consistent)
+    - Historical: PWS = 0.0212 (200x better but still low)
+  2. Historical Average Analysis:
+    - Top 10% overlap: 0.7-1.0 (excellent spatial alignment!)
+    - Predicted max density: ~0.26 (confident)
+    - True max density: ~0.18-0.24 (similar confidence)
+    - Entropy: 2.18 vs 2.35 (similar concentration levels)
+
+  Why Scores Are Still Low Despite Good Performance:
+
+  The Precision-Weighted Score formula severely penalizes any mismatch:
+  score = sum(pred_weight × (2 × pred × true - pred²))
+  where pred_weight = pred + 1e-8
+
+  The penalty comes from the -pred² term:
+  - When pred > true, the negative term dominates
+  - Even small overconfidence gets heavily penalized
+  - Perfect alignment only occurs when pred = true exactly
+
+  Evidence:
+  - Historical Average has excellent spatial overlap (0.7-1.0)
+  - Historical Average has reasonable confidence levels (~0.26 vs ~0.20)
+  - But small density mismatches get amplified by the quadratic penalty
+
+  The Scoring Is Working Correctly
+
+  The low scores actually indicate the PWS metric is very strict - it demands both:
+  1. Correct spatial placement ✅ (Historical Average achieves this)
+  2. Exact density matching ❌ (Hard to achieve perfectly)
+
+  Historical Average is performing 200x better than random, which shows it has genuine predictive power. The absolute scores are low because PWS is designed to be a demanding metric.
+```
+
+
+
+
+
+## Claude overview of how sliding window works
+
+```
+    - For each test week, the model trains on all data up to that week (expanding window)
+    - Line 268-277: train_mask = all_df['datetime'] < week_data['datetime'].min()
+    - This ensures no data leakage - models never see future data
+
+  Current Flow:
+  Data: Jan 2023 ────────────── Dec 2024
+             ↑                    ↑
+       Training Data         Test Period
+                            (last 20 weeks)
+
+  For each test week:
+  Week 1: Train on [Jan 2023 → Week 1 start] → Predict Week 1
+  Week 2: Train on [Jan 2023 → Week 2 start] → Predict Week 2
+  ...
+  Week 20: Train on [Jan 2023 → Week 20 start] → Predict Week 20
+
+  So the sliding window is working correctly - each week gets an expanding training window that includes all historical data up to (but not including) that prediction week.
+```
 
 
 ## Claude overview of Precision-Weighted Score formula:

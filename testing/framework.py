@@ -6,6 +6,8 @@ import pandas as pd
 from sklearn.neighbors import KernelDensity
 from scipy import stats
 import datetime
+import matplotlib.pyplot as plt
+import os
 
 class TweetPredictor(ABC):
     """Abstract base class for tweet prediction models"""
@@ -41,9 +43,12 @@ class TweetPredictor(ABC):
 class DataLoader:
     """Handles loading and preprocessing tweet data"""
 
-    def __init__(self, csv_path: str, sample_size: Optional[int] = None):
+    def __init__(self, csv_path: str, sample_size: Optional[int] = None,
+                 start_date: Optional[str] = None, end_date: Optional[str] = None):
         self.csv_path = Path(csv_path).expanduser()
         self.sample_size = sample_size
+        self.start_date = start_date
+        self.end_date = end_date
 
     def load_data(self) -> Tuple[np.ndarray, np.ndarray]:
         """Load tweet data with good-faith coordinates and timestamps
@@ -54,17 +59,41 @@ class DataLoader:
         """
         df = pd.read_csv(self.csv_path)
 
+        print('DF read with shape:', df.shape)
+
         if self.sample_size:
             df = df.sample(n=min(self.sample_size, len(df)), random_state=42)
 
-        # Use actual column names from the CSV
-        positions = df[['sincerity', 'charity']].values
+        # Use actual column names from the CSV - handle both formats
+        if 'sincerity' in df.columns and 'charity' in df.columns:
+            positions = df[['sincerity', 'charity']].values
+        elif 'x' in df.columns and 'y' in df.columns:
+            positions = df[['x', 'y']].values
+        else:
+            raise ValueError("CSV must contain either 'sincerity'/'charity' or 'x'/'y' columns")
+
         times = pd.to_datetime(df['datetime']).values
 
         # Remove rows with NaN values
         valid_mask = ~(np.isnan(positions).any(axis=1) | pd.isna(times))
         positions = positions[valid_mask]
         times = times[valid_mask]
+
+        # Apply date window filtering if specified
+        if self.start_date or self.end_date:
+            times_pd = pd.to_datetime(times)
+            date_mask = pd.Series(True, index=range(len(times)))
+
+            if self.start_date:
+                date_mask = date_mask & (times_pd >= pd.to_datetime(self.start_date))
+            if self.end_date:
+                date_mask = date_mask & (times_pd <= pd.to_datetime(self.end_date))
+
+            positions = positions[date_mask]
+            times = times[date_mask]
+
+            print(f"Date filtering applied: {self.start_date} to {self.end_date}")
+            print(f"Tweets after date filtering: {len(positions)}")
 
         return positions, times
 
@@ -162,10 +191,39 @@ class ProbabilisticEvaluator:
 
         return score
 
+    def _plot_prediction_heatmap(self, predicted_density: np.ndarray, true_density: np.ndarray,
+                                year: int, week: int, model_name: str, pws_score: float):
+        """Plot heatmap of predictions vs true density"""
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+
+        # Plot predicted density
+        im1 = ax1.imshow(predicted_density, cmap='viridis', origin='lower')
+        ax1.set_title(f'{model_name}\nPredicted Density - Week {year}-{week}\nPWS: {pws_score:.4f}')
+        ax1.set_xlabel('Charity →')
+        ax1.set_ylabel('Sincerity →')
+        plt.colorbar(im1, ax=ax1, label='Probability Density')
+
+        # Plot true density
+        im2 = ax2.imshow(true_density, cmap='viridis', origin='lower')
+        ax2.set_title(f'True Density - Week {year}-{week}')
+        ax2.set_xlabel('Charity →')
+        ax2.set_ylabel('Sincerity →')
+        plt.colorbar(im2, ax=ax2, label='Probability Density')
+
+        plt.tight_layout()
+
+        # Save to image_outputs
+        filename = f"prediction_heatmap_{year}_week{week}_{model_name.replace(' ', '_').replace('(', '').replace(')', '').replace('=', '')}.png"
+        filepath = os.path.join('image_outputs', filename)
+        plt.savefig(filepath, dpi=150, bbox_inches='tight')
+        plt.close()
+
+        print(f"  Saved heatmap: {filepath}")
+
     def evaluate_model(self, model: TweetPredictor,
                       train_positions: np.ndarray, train_times: np.ndarray,
                       test_positions: np.ndarray, test_times: np.ndarray,
-                      grid_size: int = 50) -> Dict[str, float]:
+                      grid_size: int = 10) -> Dict[str, float]:
         """Comprehensive model evaluation with rolling window"""
 
         # Combine all data and sort by time
@@ -191,6 +249,7 @@ class ProbabilisticEvaluator:
 
         scores = []
         kl_divergences = []
+        tweet_counts = []
         total_test_tweets = 0
 
         for (year, week) in test_weeks[['year', 'week']].drop_duplicates().values:
@@ -223,9 +282,51 @@ class ProbabilisticEvaluator:
             # Create true density from observed positions
             true_density = self.create_density_grid(week_positions, grid_size)
 
+            # Output prediction overview for this week
+            # print(f"Week {year}-{week}: {len(week_positions)} tweets")
+            # print(f"  Predicted density shape: {predicted_density.shape}")
+            # print(f"  Predicted density range: [{predicted_density.min():.6f}, {predicted_density.max():.6f}]")
+            # print(f"  Predicted density sum: {predicted_density.sum():.6f}")
+            # print(f"  True density range: [{true_density.min():.6f}, {true_density.max():.6f}]")
+            # print(f"  True density sum: {true_density.sum():.6f}")
+
+            # Show where density is concentrated
+            pred_top_indices = np.unravel_index(np.argpartition(predicted_density.flatten(), -5)[-5:], predicted_density.shape)
+            true_top_indices = np.unravel_index(np.argpartition(true_density.flatten(), -5)[-5:], true_density.shape)
+            # print(f"  Predicted high-density locations (top 5): {list(zip(pred_top_indices[0], pred_top_indices[1]))}")
+            # print(f"  True high-density locations (top 5): {list(zip(true_top_indices[0], true_top_indices[1]))}")
+
             # Calculate scores
             pws = self.precision_weighted_brier_score(predicted_density, true_density)
             scores.append(pws)
+            tweet_counts.append(len(week_positions))
+
+            # Debug scoring - analyze why scores might be low
+            pred_norm = predicted_density / predicted_density.sum()
+            true_norm = true_density / true_density.sum()
+
+            # Check overlap between predicted and true high-density areas
+            pred_top_10_percent = pred_norm >= np.percentile(pred_norm, 90)
+            true_top_10_percent = true_norm >= np.percentile(true_norm, 90)
+            overlap = np.sum(pred_top_10_percent & true_top_10_percent) / np.sum(true_top_10_percent)
+
+            # Check if predictions are too uniform (not confident enough)
+            pred_entropy = -np.sum(pred_norm * np.log(pred_norm + 1e-10))
+            true_entropy = -np.sum(true_norm * np.log(true_norm + 1e-10))
+            max_entropy = np.log(pred_norm.size)  # Uniform distribution entropy
+
+            print(f"Week {year}-{week} Score Analysis:")
+            print(f"  PWS: {pws:.6f}")
+            print(f"  Top 10% overlap: {overlap:.3f} (1.0 = perfect)")
+            print(f"  Pred entropy: {pred_entropy:.3f} / {max_entropy:.3f} (higher = more uniform)")
+            print(f"  True entropy: {true_entropy:.3f} / {max_entropy:.3f}")
+            print(f"  Pred max density: {pred_norm.max():.6f}")
+            print(f"  True max density: {true_norm.max():.6f}")
+            print()
+
+            # Plot heatmap for HistoricalAverageModel
+            if "Historical Average" in model.get_name():
+                self._plot_prediction_heatmap(predicted_density, true_density, year, week, model.get_name(), pws)
 
             # KL divergence (traditional metric)
             pred_norm = predicted_density / predicted_density.sum() + 1e-10
@@ -233,9 +334,18 @@ class ProbabilisticEvaluator:
             kl = stats.entropy(true_norm.flatten(), pred_norm.flatten())
             kl_divergences.append(kl)
 
+        # Calculate weighted means by tweet count
+        scores = np.array(scores)
+        kl_divergences = np.array(kl_divergences)
+        tweet_counts = np.array(tweet_counts)
+
+        # Weighted mean: sum(score * weight) / sum(weight)
+        weighted_pws = np.sum(scores * tweet_counts) / np.sum(tweet_counts) if np.sum(tweet_counts) > 0 else np.mean(scores)
+        weighted_kl = np.sum(kl_divergences * tweet_counts) / np.sum(tweet_counts) if np.sum(tweet_counts) > 0 else np.mean(kl_divergences)
+
         return {
-            'precision_weighted_score': np.mean(scores),
-            'kl_divergence': np.mean(kl_divergences),
+            'precision_weighted_score': weighted_pws,
+            'kl_divergence': weighted_kl,
             'score_std': np.std(scores),
             'weeks_evaluated': len(scores),
             'total_test_tweets': total_test_tweets
@@ -244,8 +354,9 @@ class ProbabilisticEvaluator:
 class TestingFramework:
     """Main framework for testing tweet prediction models"""
 
-    def __init__(self, data_path: str, sample_size: Optional[int] = None):
-        self.data_loader = DataLoader(data_path, sample_size)
+    def __init__(self, data_path: str, sample_size: Optional[int] = None,
+                 start_date: Optional[str] = None, end_date: Optional[str] = None):
+        self.data_loader = DataLoader(data_path, sample_size, start_date, end_date)
         self.evaluator = ProbabilisticEvaluator()
         self.models = []
 

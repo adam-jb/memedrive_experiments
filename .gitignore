@@ -5,3 +5,4 @@ output_data*
 trained_models*
 visualisations*
 preproc/good_faith/tweet_timeseries.json
+image_outputs/*

@@ -22,7 +22,7 @@ class HistoricalAverageModel(TweetPredictor):
     def predict_density(self, test_times: np.ndarray, grid_size: int = 50) -> np.ndarray:
         """Predict density as historical average for all time periods"""
         if self.train_positions is None or len(self.train_positions) == 0:
-            # Return uniform distribution if no training data
+            print('Return uniform distribution because no training data')
             uniform_density = np.ones((grid_size, grid_size)) / (grid_size ** 2)
             return np.array([uniform_density] * len(test_times))
 
