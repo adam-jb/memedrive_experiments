@@ -67,10 +67,9 @@ This is easier to understand than more complicated things, though may be insensi
 
 ## TO DO NOW in order
 
-Delete dead code, eg do i still need precision_weighted_brier_score() and other thing slike that? now im not using Precision weighted score 
+Add parameter in main runner, which if set leads to making an animation with 2 frames for each prediction: one with the predicted density, and then a 2nd with the same density and the actual tweets overlaid. Should set this for each model, so can decdie which get animated. Animations should save in 'image_outputs' folder
 
 Add option to make bespoke versions for customers, which zoom in on particular areas. to implement: make an optional param which lets the users zoom in on a particular topic, defined as an N-dimensional box, and we only consider tweets in that box
-
 
 
 
@@ -82,51 +81,6 @@ Add option to make bespoke versions for customers, which zoom in on particular a
 
 ## Files setting out approaches to ultimately move to new model framework 
 - Approaches described in preproc/good_faith/READMD.md
-
-
-
-
-## Precision weighted score is too harsh a formula: summary of claude investigation into why the scores are so low, even though visually the density looks about right
-```
-Looking at the evaluation results, I can now explain why the scores are low:
-
-  Root Cause: Precision-Weighted Score Penalizes Confidence Mismatch
-
-  Key Findings:
-
-  1. Random Uniform vs Historical Average:
-    - Random: PWS = 0.0001 (terrible but consistent)
-    - Historical: PWS = 0.0212 (200x better but still low)
-  2. Historical Average Analysis:
-    - Top 10% overlap: 0.7-1.0 (excellent spatial alignment!)
-    - Predicted max density: ~0.26 (confident)
-    - True max density: ~0.18-0.24 (similar confidence)
-    - Entropy: 2.18 vs 2.35 (similar concentration levels)
-
-  Why Scores Are Still Low Despite Good Performance:
-
-  The Precision-Weighted Score formula severely penalizes any mismatch:
-  score = sum(pred_weight × (2 × pred × true - pred²))
-  where pred_weight = pred + 1e-8
-
-  The penalty comes from the -pred² term:
-  - When pred > true, the negative term dominates
-  - Even small overconfidence gets heavily penalized
-  - Perfect alignment only occurs when pred = true exactly
-
-  Evidence:
-  - Historical Average has excellent spatial overlap (0.7-1.0)
-  - Historical Average has reasonable confidence levels (~0.26 vs ~0.20)
-  - But small density mismatches get amplified by the quadratic penalty
-
-  The Scoring Is Working Correctly
-
-  The low scores actually indicate the PWS metric is very strict - it demands both:
-  1. Correct spatial placement ✅ (Historical Average achieves this)
-  2. Exact density matching ❌ (Hard to achieve perfectly)
-
-  Historical Average is performing 200x better than random, which shows it has genuine predictive power. The absolute scores are low because PWS is designed to be a demanding metric.
-```
 
 
 
@@ -155,31 +109,8 @@ Looking at the evaluation results, I can now explain why the scores are low:
 ```
 
 
-## Claude overview of Precision-Weighted Score formula:
 
-  score = np.sum(precision_weights * (2 * pred_norm * true_norm - pred_norm**2))
-
-  Where precision_weights = pred_norm + 1e-8
-
-  Minimum Score:
-  - Approaches -∞ (negative infinity) when model predicts high probability where no tweets occur
-  - Worst case: predict 100% in empty regions → large negative penalty
-
-  Maximum Score:
-  - Approaches 1 when prediction perfectly matches truth
-  - Best case: predict exactly where tweets occur with high confidence
-  - If pred_norm = true_norm everywhere, score ≈ 1
-
-  Typical Range:
-  - Random/poor models: -0.5 to 0.1
-  - Good models: 0.3 to 0.8
-  - Perfect model: ≈ 1.0
-
-  The score rewards confident correct predictions heavily but severely penalizes confident wrong predictions, making it much more sensitive than traditional accuracy metrics.
-
-
-
-## Answers to questions from Claude
+## Answers to questions from Claude earlier in dev process
 
   Prediction Target:
   1. What exactly should we predict? Tweet locations in 2D good-faith space for the next day? Density clouds/probability

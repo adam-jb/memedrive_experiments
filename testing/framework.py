@@ -130,14 +130,11 @@ class DataLoader:
         return train_positions, train_times, test_positions, test_times
 
 class ProbabilisticEvaluator:
-    """Evaluates models using Brier-score-like metrics for density prediction"""
+    """Evaluates models using field density scores for tweet prediction"""
 
-    def __init__(self, grid_bounds: Tuple[Tuple[float, float], Tuple[float, float]] = None,
-                 tolerance_radius: int = 3):
+    def __init__(self, grid_bounds: Tuple[Tuple[float, float], Tuple[float, float]] = None):
         # Default bounds for 2D good-faith space - will be updated based on data
         self.grid_bounds = grid_bounds
-        # How forgiving the evaluation should be (grid cells of tolerance)
-        self.tolerance_radius = tolerance_radius
 
     def create_density_grid(self, positions: np.ndarray, grid_size: int = 100,
                            bandwidth: float = 0.1) -> np.ndarray:
@@ -175,50 +172,6 @@ class ProbabilisticEvaluator:
 
         return density / density_sum
 
-    def create_gaussian_smoothed_density(self, positions: np.ndarray, grid_size: int = 100,
-                                       bandwidth: float = 0.05) -> np.ndarray:
-        """Create density grid by placing Gaussians around each training tweet position
-
-        This approach puts probabilistic Gaussians around each training data point
-        instead of treating them as delta functions
-        """
-        if len(positions) == 0:
-            return np.ones((grid_size, grid_size)) / (grid_size ** 2)
-
-        # Dynamic grid bounds based on actual data with padding
-        x_min, x_max = positions[:, 0].min(), positions[:, 0].max()
-        y_min, y_max = positions[:, 1].min(), positions[:, 1].max()
-
-        # Add padding
-        x_padding = max(0.5, (x_max - x_min) * 0.2)
-        y_padding = max(0.5, (y_max - y_min) * 0.2)
-
-        x_bounds = (x_min - x_padding, x_max + x_padding)
-        y_bounds = (y_min - y_padding, y_max + y_padding)
-
-        # Create dense grid
-        x_grid = np.linspace(x_bounds[0], x_bounds[1], grid_size)
-        y_grid = np.linspace(y_bounds[0], y_bounds[1], grid_size)
-        xx, yy = np.meshgrid(x_grid, y_grid)
-
-        # Initialize density grid
-        density = np.zeros((grid_size, grid_size))
-
-        # Place Gaussian around each training tweet
-        for position in positions:
-            # Calculate squared distances from this tweet to all grid points
-            dist_sq = ((xx - position[0])**2 + (yy - position[1])**2)
-
-            # Add Gaussian contribution (not using KDE, direct calculation)
-            gaussian_contrib = np.exp(-dist_sq / (2 * bandwidth**2))
-            density += gaussian_contrib
-
-        # Normalize to sum to 1
-        density_sum = density.sum()
-        if density_sum == 0:
-            return np.ones((grid_size, grid_size)) / (grid_size ** 2)
-
-        return density / density_sum
 
     def create_point_based_density(self, positions: np.ndarray, grid_size: int = 100) -> np.ndarray:
         """Create true density grid from actual tweet points without Gaussians
@@ -315,54 +268,6 @@ class ProbabilisticEvaluator:
 
         return weighted_score
 
-    def precision_weighted_brier_score(self, predicted_density: np.ndarray,
-                                     true_density: np.ndarray, tolerance_radius: int = 2) -> float:
-        """Calculate Brier-like score that rewards precision with spatial forgiveness
-
-        Higher scores are better (opposite of traditional Brier score)
-        Rewards models for being confident and correct, with spatial tolerance
-
-        Args:
-            tolerance_radius: How many grid cells away predictions can be and still get credit
-        """
-        # Ensure densities sum to 1
-        pred_norm = predicted_density / predicted_density.sum()
-        true_norm = true_density / true_density.sum()
-
-        if tolerance_radius == 0:
-            # Original harsh scoring - exact match required
-            precision_weights = pred_norm + 1e-8
-            score = np.sum(precision_weights * (2 * pred_norm * true_norm - pred_norm**2))
-        else:
-            # Forgiving scoring - spread true density around actual locations
-            true_forgiving = self._create_spatially_tolerant_density(true_norm, tolerance_radius)
-
-            # Use forgiving true density for evaluation
-            precision_weights = pred_norm + 1e-8
-            score = np.sum(precision_weights * (2 * pred_norm * true_forgiving - pred_norm**2))
-
-        return score
-
-    def _create_spatially_tolerant_density(self, true_density: np.ndarray,
-                                         tolerance_radius: int) -> np.ndarray:
-        """Spread true density within tolerance radius of actual points"""
-        from scipy import ndimage
-
-        if tolerance_radius <= 0:
-            return true_density
-
-        # Create circular kernel for spreading
-        kernel_size = 2 * tolerance_radius + 1
-        y, x = np.ogrid[-tolerance_radius:tolerance_radius+1, -tolerance_radius:tolerance_radius+1]
-        kernel = (x**2 + y**2) <= tolerance_radius**2
-        kernel = kernel.astype(float)
-        kernel = kernel / kernel.sum()  # Normalize
-
-        # Apply convolution to spread density around each point
-        forgiving_density = ndimage.convolve(true_density, kernel, mode='constant')
-
-        # Re-normalize to sum to 1
-        return forgiving_density / forgiving_density.sum()
 
     def _plot_prediction_heatmap(self, predicted_density: np.ndarray, true_density: np.ndarray,
                                 year: int, week: int, model_name: str, field_score: float):
@@ -506,10 +411,9 @@ class TestingFramework:
     """Main framework for testing tweet prediction models"""
 
     def __init__(self, data_path: str, sample_size: Optional[int] = None,
-                 start_date: Optional[str] = None, end_date: Optional[str] = None,
-                 tolerance_radius: int = 3):
+                 start_date: Optional[str] = None, end_date: Optional[str] = None):
         self.data_loader = DataLoader(data_path, sample_size, start_date, end_date)
-        self.evaluator = ProbabilisticEvaluator(tolerance_radius=tolerance_radius)
+        self.evaluator = ProbabilisticEvaluator()
         self.models = []
 
     def add_model(self, model: TweetPredictor):
