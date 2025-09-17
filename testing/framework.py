@@ -132,11 +132,14 @@ class DataLoader:
 class ProbabilisticEvaluator:
     """Evaluates models using Brier-score-like metrics for density prediction"""
 
-    def __init__(self, grid_bounds: Tuple[Tuple[float, float], Tuple[float, float]] = None):
+    def __init__(self, grid_bounds: Tuple[Tuple[float, float], Tuple[float, float]] = None,
+                 tolerance_radius: int = 3):
         # Default bounds for 2D good-faith space - will be updated based on data
         self.grid_bounds = grid_bounds
+        # How forgiving the evaluation should be (grid cells of tolerance)
+        self.tolerance_radius = tolerance_radius
 
-    def create_density_grid(self, positions: np.ndarray, grid_size: int = 50,
+    def create_density_grid(self, positions: np.ndarray, grid_size: int = 100,
                            bandwidth: float = 0.1) -> np.ndarray:
         """Create true density grid from observed tweet positions"""
 
@@ -172,24 +175,141 @@ class ProbabilisticEvaluator:
 
         return density / density_sum
 
+    def create_gaussian_smoothed_density(self, positions: np.ndarray, grid_size: int = 100,
+                                       bandwidth: float = 0.05) -> np.ndarray:
+        """Create density grid by placing Gaussians around each training tweet position
+
+        This approach puts probabilistic Gaussians around each training data point
+        instead of treating them as delta functions
+        """
+        if len(positions) == 0:
+            return np.ones((grid_size, grid_size)) / (grid_size ** 2)
+
+        # Dynamic grid bounds based on actual data with padding
+        x_min, x_max = positions[:, 0].min(), positions[:, 0].max()
+        y_min, y_max = positions[:, 1].min(), positions[:, 1].max()
+
+        # Add padding
+        x_padding = max(0.5, (x_max - x_min) * 0.2)
+        y_padding = max(0.5, (y_max - y_min) * 0.2)
+
+        x_bounds = (x_min - x_padding, x_max + x_padding)
+        y_bounds = (y_min - y_padding, y_max + y_padding)
+
+        # Create dense grid
+        x_grid = np.linspace(x_bounds[0], x_bounds[1], grid_size)
+        y_grid = np.linspace(y_bounds[0], y_bounds[1], grid_size)
+        xx, yy = np.meshgrid(x_grid, y_grid)
+
+        # Initialize density grid
+        density = np.zeros((grid_size, grid_size))
+
+        # Place Gaussian around each training tweet
+        for position in positions:
+            # Calculate squared distances from this tweet to all grid points
+            dist_sq = ((xx - position[0])**2 + (yy - position[1])**2)
+
+            # Add Gaussian contribution (not using KDE, direct calculation)
+            gaussian_contrib = np.exp(-dist_sq / (2 * bandwidth**2))
+            density += gaussian_contrib
+
+        # Normalize to sum to 1
+        density_sum = density.sum()
+        if density_sum == 0:
+            return np.ones((grid_size, grid_size)) / (grid_size ** 2)
+
+        return density / density_sum
+
+    def create_point_based_density(self, positions: np.ndarray, grid_size: int = 100) -> np.ndarray:
+        """Create true density grid from actual tweet points without Gaussians
+
+        Each tweet is represented as a point mass (delta function) on the grid
+        """
+        if len(positions) == 0:
+            return np.ones((grid_size, grid_size)) / (grid_size ** 2)
+
+        # Dynamic grid bounds based on actual data with padding
+        x_min, x_max = positions[:, 0].min(), positions[:, 0].max()
+        y_min, y_max = positions[:, 1].min(), positions[:, 1].max()
+
+        # Add padding
+        x_padding = max(0.5, (x_max - x_min) * 0.2)
+        y_padding = max(0.5, (y_max - y_min) * 0.2)
+
+        x_bounds = (x_min - x_padding, x_max + x_padding)
+        y_bounds = (y_min - y_padding, y_max + y_padding)
+
+        # Create grid
+        x_grid = np.linspace(x_bounds[0], x_bounds[1], grid_size)
+        y_grid = np.linspace(y_bounds[0], y_bounds[1], grid_size)
+
+        # Initialize density grid
+        density = np.zeros((grid_size, grid_size))
+
+        # Place each tweet as point mass on nearest grid cell
+        for position in positions:
+            # Find nearest grid indices
+            x_idx = np.argmin(np.abs(x_grid - position[0]))
+            y_idx = np.argmin(np.abs(y_grid - position[1]))
+
+            # Add point mass (each tweet contributes 1.0)
+            density[y_idx, x_idx] += 1.0
+
+        # Normalize to sum to 1
+        density_sum = density.sum()
+        if density_sum == 0:
+            return np.ones((grid_size, grid_size)) / (grid_size ** 2)
+
+        return density / density_sum
+
     def precision_weighted_brier_score(self, predicted_density: np.ndarray,
-                                     true_density: np.ndarray) -> float:
-        """Calculate Brier-like score that rewards precision
+                                     true_density: np.ndarray, tolerance_radius: int = 2) -> float:
+        """Calculate Brier-like score that rewards precision with spatial forgiveness
 
         Higher scores are better (opposite of traditional Brier score)
-        Rewards models for being confident and correct
+        Rewards models for being confident and correct, with spatial tolerance
+
+        Args:
+            tolerance_radius: How many grid cells away predictions can be and still get credit
         """
         # Ensure densities sum to 1
         pred_norm = predicted_density / predicted_density.sum()
         true_norm = true_density / true_density.sum()
 
-        # Precision reward: higher weight where prediction is concentrated
-        precision_weights = pred_norm + 1e-8  # Avoid division by zero
+        if tolerance_radius == 0:
+            # Original harsh scoring - exact match required
+            precision_weights = pred_norm + 1e-8
+            score = np.sum(precision_weights * (2 * pred_norm * true_norm - pred_norm**2))
+        else:
+            # Forgiving scoring - spread true density around actual locations
+            true_forgiving = self._create_spatially_tolerant_density(true_norm, tolerance_radius)
 
-        # Modified Brier score: reward correct high-confidence predictions
-        score = np.sum(precision_weights * (2 * pred_norm * true_norm - pred_norm**2))
+            # Use forgiving true density for evaluation
+            precision_weights = pred_norm + 1e-8
+            score = np.sum(precision_weights * (2 * pred_norm * true_forgiving - pred_norm**2))
 
         return score
+
+    def _create_spatially_tolerant_density(self, true_density: np.ndarray,
+                                         tolerance_radius: int) -> np.ndarray:
+        """Spread true density within tolerance radius of actual points"""
+        from scipy import ndimage
+
+        if tolerance_radius <= 0:
+            return true_density
+
+        # Create circular kernel for spreading
+        kernel_size = 2 * tolerance_radius + 1
+        y, x = np.ogrid[-tolerance_radius:tolerance_radius+1, -tolerance_radius:tolerance_radius+1]
+        kernel = (x**2 + y**2) <= tolerance_radius**2
+        kernel = kernel.astype(float)
+        kernel = kernel / kernel.sum()  # Normalize
+
+        # Apply convolution to spread density around each point
+        forgiving_density = ndimage.convolve(true_density, kernel, mode='constant')
+
+        # Re-normalize to sum to 1
+        return forgiving_density / forgiving_density.sum()
 
     def _plot_prediction_heatmap(self, predicted_density: np.ndarray, true_density: np.ndarray,
                                 year: int, week: int, model_name: str, pws_score: float):
@@ -223,7 +343,7 @@ class ProbabilisticEvaluator:
     def evaluate_model(self, model: TweetPredictor,
                       train_positions: np.ndarray, train_times: np.ndarray,
                       test_positions: np.ndarray, test_times: np.ndarray,
-                      grid_size: int = 10) -> Dict[str, float]:
+                      grid_size: int = 100) -> Dict[str, float]:
         """Comprehensive model evaluation with rolling window"""
 
         # Combine all data and sort by time
@@ -279,53 +399,40 @@ class ProbabilisticEvaluator:
             # Predict density for this week
             predicted_density = model.predict_density(week_times, grid_size)[0]
 
-            # Create true density from observed positions
-            true_density = self.create_density_grid(week_positions, grid_size)
+            # Create true density from observed positions (point-based, no Gaussians)
+            true_density = self.create_point_based_density(week_positions, grid_size)
 
-            # Output prediction overview for this week
-            # print(f"Week {year}-{week}: {len(week_positions)} tweets")
-            # print(f"  Predicted density shape: {predicted_density.shape}")
-            # print(f"  Predicted density range: [{predicted_density.min():.6f}, {predicted_density.max():.6f}]")
-            # print(f"  Predicted density sum: {predicted_density.sum():.6f}")
-            # print(f"  True density range: [{true_density.min():.6f}, {true_density.max():.6f}]")
-            # print(f"  True density sum: {true_density.sum():.6f}")
 
-            # Show where density is concentrated
-            pred_top_indices = np.unravel_index(np.argpartition(predicted_density.flatten(), -5)[-5:], predicted_density.shape)
-            true_top_indices = np.unravel_index(np.argpartition(true_density.flatten(), -5)[-5:], true_density.shape)
-            # print(f"  Predicted high-density locations (top 5): {list(zip(pred_top_indices[0], pred_top_indices[1]))}")
-            # print(f"  True high-density locations (top 5): {list(zip(true_top_indices[0], true_top_indices[1]))}")
-
-            # Calculate scores
-            pws = self.precision_weighted_brier_score(predicted_density, true_density)
+            # Calculate scores with spatial tolerance
+            pws = self.precision_weighted_brier_score(predicted_density, true_density,
+                                                    self.tolerance_radius)
             scores.append(pws)
             tweet_counts.append(len(week_positions))
 
-            # Debug scoring - analyze why scores might be low
-            pred_norm = predicted_density / predicted_density.sum()
-            true_norm = true_density / true_density.sum()
+            # Check for PWS = 0 and diagnose the issue
+            if pws == 0.0 and "Gaussian Smoothed" in model.get_name():
+                pred_norm = predicted_density / predicted_density.sum()
+                true_norm = true_density / true_density.sum()
 
-            # Check overlap between predicted and true high-density areas
-            pred_top_10_percent = pred_norm >= np.percentile(pred_norm, 90)
-            true_top_10_percent = true_norm >= np.percentile(true_norm, 90)
-            overlap = np.sum(pred_top_10_percent & true_top_10_percent) / np.sum(true_top_10_percent)
+                print(f"⚠️  PWS = 0 detected for {model.get_name()} - Week {year}-{week}")
+                print(f"   Predicted density range: [{predicted_density.min():.6f}, {predicted_density.max():.6f}]")
+                print(f"   Predicted density sum: {predicted_density.sum():.6f}")
+                print(f"   True density non-zero cells: {(true_density > 0).sum()}")
+                print(f"   True density range: [{true_density.min():.6f}, {true_density.max():.6f}]")
 
-            # Check if predictions are too uniform (not confident enough)
-            pred_entropy = -np.sum(pred_norm * np.log(pred_norm + 1e-10))
-            true_entropy = -np.sum(true_norm * np.log(true_norm + 1e-10))
-            max_entropy = np.log(pred_norm.size)  # Uniform distribution entropy
+                # Check if prediction is all zeros or uniform
+                if predicted_density.max() == predicted_density.min():
+                    print(f"   ISSUE: Predicted density is completely uniform!")
+                elif predicted_density.sum() == 0:
+                    print(f"   ISSUE: Predicted density sums to zero!")
+                elif (true_density > 0).sum() == 0:
+                    print(f"   ISSUE: True density has no tweets!")
+                else:
+                    print(f"   ISSUE: Unknown cause of PWS=0")
+                print()
 
-            print(f"Week {year}-{week} Score Analysis:")
-            print(f"  PWS: {pws:.6f}")
-            print(f"  Top 10% overlap: {overlap:.3f} (1.0 = perfect)")
-            print(f"  Pred entropy: {pred_entropy:.3f} / {max_entropy:.3f} (higher = more uniform)")
-            print(f"  True entropy: {true_entropy:.3f} / {max_entropy:.3f}")
-            print(f"  Pred max density: {pred_norm.max():.6f}")
-            print(f"  True max density: {true_norm.max():.6f}")
-            print()
-
-            # Plot heatmap for HistoricalAverageModel
-            if "Historical Average" in model.get_name():
+            # Plot heatmap for HistoricalAverageModel or GaussianSmoothed models
+            if "Historical Average" in model.get_name() or "Gaussian Smoothed" in model.get_name():
                 self._plot_prediction_heatmap(predicted_density, true_density, year, week, model.get_name(), pws)
 
             # KL divergence (traditional metric)
@@ -355,9 +462,10 @@ class TestingFramework:
     """Main framework for testing tweet prediction models"""
 
     def __init__(self, data_path: str, sample_size: Optional[int] = None,
-                 start_date: Optional[str] = None, end_date: Optional[str] = None):
+                 start_date: Optional[str] = None, end_date: Optional[str] = None,
+                 tolerance_radius: int = 3):
         self.data_loader = DataLoader(data_path, sample_size, start_date, end_date)
-        self.evaluator = ProbabilisticEvaluator()
+        self.evaluator = ProbabilisticEvaluator(tolerance_radius=tolerance_radius)
         self.models = []
 
     def add_model(self, model: TweetPredictor):
@@ -393,6 +501,8 @@ class TestingFramework:
         print("\n" + "="*50)
         print("EVALUATION RESULTS")
         print("="*50)
+        print(f"Spatial Tolerance: {self.evaluator.tolerance_radius} grid cells")
+        print(f"(0=harsh/exact, {self.evaluator.tolerance_radius}=generous)")
 
         for model_name, scores in results.items():
             print(f"\n{model_name}:")

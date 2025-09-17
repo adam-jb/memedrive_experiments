@@ -19,7 +19,7 @@ class HistoricalAverageModel(TweetPredictor):
         self.kde = KernelDensity(bandwidth=self.bandwidth, kernel='gaussian')
         self.kde.fit(train_data)
 
-    def predict_density(self, test_times: np.ndarray, grid_size: int = 50) -> np.ndarray:
+    def predict_density(self, test_times: np.ndarray, grid_size: int = 100) -> np.ndarray:
         """Predict density as historical average for all time periods"""
         if self.train_positions is None or len(self.train_positions) == 0:
             print('Return uniform distribution because no training data')
@@ -70,7 +70,7 @@ class RandomModel(TweetPredictor):
         """No training needed for random model"""
         pass
 
-    def predict_density(self, test_times: np.ndarray, grid_size: int = 50) -> np.ndarray:
+    def predict_density(self, test_times: np.ndarray, grid_size: int = 100) -> np.ndarray:
         """Always predict uniform distribution"""
         uniform_density = np.ones((grid_size, grid_size)) / (grid_size ** 2)
         return np.array([uniform_density] * len(test_times))
@@ -105,7 +105,7 @@ class WeeklyAverageModel(TweetPredictor):
                 kde.fit(day_data)
                 self.weekly_patterns[day] = kde
 
-    def predict_density(self, test_times: np.ndarray, grid_size: int = 50) -> np.ndarray:
+    def predict_density(self, test_times: np.ndarray, grid_size: int = 100) -> np.ndarray:
         """Predict density based on day of week patterns"""
         import pandas as pd
 
@@ -156,3 +156,62 @@ class WeeklyAverageModel(TweetPredictor):
 
     def get_name(self) -> str:
         return f"Weekly Average (bandwidth={self.bandwidth})"
+
+class GaussianSmoothedHistoricalModel(TweetPredictor):
+    """Model that places Gaussians around each training tweet instead of delta functions"""
+
+    def __init__(self, gaussian_bandwidth: float = 0.05):
+        self.gaussian_bandwidth = gaussian_bandwidth
+        self.train_positions = None
+
+    def fit(self, train_data: np.ndarray, train_times: np.ndarray) -> None:
+        """Store training data for Gaussian smoothing"""
+        self.train_positions = train_data
+
+    def predict_density(self, test_times: np.ndarray, grid_size: int = 100) -> np.ndarray:
+        """Predict density by placing Gaussians around each training tweet"""
+        if self.train_positions is None or len(self.train_positions) == 0:
+            print('Return uniform distribution because no training data')
+            uniform_density = np.ones((grid_size, grid_size)) / (grid_size ** 2)
+            return np.array([uniform_density] * len(test_times))
+
+        # Dynamic grid bounds based on training data
+        x_min, x_max = self.train_positions[:, 0].min(), self.train_positions[:, 0].max()
+        y_min, y_max = self.train_positions[:, 1].min(), self.train_positions[:, 1].max()
+
+        # Add padding
+        x_padding = max(0.5, (x_max - x_min) * 0.2)
+        y_padding = max(0.5, (y_max - y_min) * 0.2)
+
+        x_bounds = (x_min - x_padding, x_max + x_padding)
+        y_bounds = (y_min - y_padding, y_max + y_padding)
+
+        # Create dense grid
+        x_grid = np.linspace(x_bounds[0], x_bounds[1], grid_size)
+        y_grid = np.linspace(y_bounds[0], y_bounds[1], grid_size)
+        xx, yy = np.meshgrid(x_grid, y_grid)
+
+        # Initialize density grid
+        density = np.zeros((grid_size, grid_size))
+
+        # Place Gaussian around each training tweet
+        for position in self.train_positions:
+            # Calculate squared distances from this tweet to all grid points
+            dist_sq = ((xx - position[0])**2 + (yy - position[1])**2)
+
+            # Add Gaussian contribution
+            gaussian_contrib = np.exp(-dist_sq / (2 * self.gaussian_bandwidth**2))
+            density += gaussian_contrib
+
+        # Normalize to sum to 1
+        density_sum = density.sum()
+        if density_sum == 0:
+            density = np.ones((grid_size, grid_size)) / (grid_size ** 2)
+        else:
+            density = density / density_sum
+
+        # Return same density for all time periods (historical average with Gaussians)
+        return np.array([density] * len(test_times))
+
+    def get_name(self) -> str:
+        return f"Gaussian Smoothed Historical (σ={self.gaussian_bandwidth})"

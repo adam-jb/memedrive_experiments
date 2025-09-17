@@ -50,17 +50,22 @@ the column 'datetime' is in this format: 2024-01-07 20:49:34+00:00
 - edit evaluate_model() in framework.py so it takes weighted mean across all weeks, by count of tweets for each week, not simple mean
 - add parameter to run_test.py which sets the date window for your input data
 
-
-
-
-## TO DO NEXT (in this order)
 - add option of using 'field based' approach to probability density, rather than grid of probability densities. Need ideas to do this...
 want field probability approach instead, where field can flex in harshness to fit needs of customers
 
 one musing on this: is there a way to have the densities be more than just collections of circles (or close to circles) eg a way to allow predictions with any shape of field? Or could one way be to make predictions as a dense grid (Eg 500x500) and then put
   gausians around the tweets themselves? 
 
-DO THIS: or an easier approach could be keep the current density approach, but instead of single points for each tweet in the train and test datasets, we put probabilistic gaussians around each of the train data (but keep just the actual tweets in the test data) could try this with a 100x100 grid
+
+
+## TO DO NEXT (in this order)
+
+implement the field density approach to eval metric, replace PWS:
+- have the 'trained' model return an N*N grid, each of which is the relative probability of a tweet appearing there in the next time unit (week atm)
+- the average probability of these should be 1, so the mean probability of all cells is 1
+- the final metric could be the weighted average of the square each tweet from the next week appears on, with the weighting being the importance of that tweet
+- so a final metric of 1 should be equivalent to randomness; 0 means that the model is perfectly wrong (the most wrong it could be); and the maximum is huge: a proportion of how much better than randomness it is
+- start with a probabilistic grid
 
 
 
