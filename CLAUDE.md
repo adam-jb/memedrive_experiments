@@ -73,6 +73,7 @@ Add parameter in main runner, which if set leads to making an animation with 2 f
 1. Convert data to a meaningful set of dimensions (the 2d good faith ones aren’t so good)
 2. Test models with high resolution
 3. make drift_field.py make better predictions; use bayesian opt to find the best params for it. Use multicore if compute becomes bottleneck
+4. Make 'weight' account for each tweet in calculate_fds_score() (testing/framework.py)
 
 Models to try:
 1. Deep neural nets: maybe LSTM

@@ -141,7 +141,10 @@ class DriftFieldModel(TweetPredictor):
             filled_length = int(bar_length * progress)
             bar = '█' * filled_length + '-' * (bar_length - filled_length)
             print(f"\r    CV Progress: [{bar}] {i+1}/{total_tests} ({progress:.1%})", end='', flush=True)
-            train_periods = time_groups[:test_idx]
+            # Use sliding window instead of expanding window for cross-validation
+            window_size = params['history_window']
+            start_idx = max(0, test_idx - window_size)
+            train_periods = time_groups[start_idx:test_idx]
             test_period = time_groups[test_idx]
 
             if len(test_period) == 0:
@@ -167,7 +170,9 @@ class DriftFieldModel(TweetPredictor):
                 )
 
                 # Calculate FDS for this prediction
-                fds_score = self._calculate_fds_score(predicted_density, test_period, params)
+                grid_bounds = ((self.spatial_bounds['x_min'], self.spatial_bounds['x_max']),
+                             (self.spatial_bounds['y_min'], self.spatial_bounds['y_max']))
+                fds_score = self.calculate_fds_score(predicted_density, test_period, grid_bounds)
                 fds_scores.append(fds_score * len(test_period))  # Weight by tweet count
                 total_tweets += len(test_period)
 
@@ -261,43 +266,16 @@ class DriftFieldModel(TweetPredictor):
 
         return next_density
 
-    def _calculate_fds_score(self, predicted_density: np.ndarray, actual_tweets: np.ndarray, params: Dict) -> float:
-        """Calculate Field Density Score for prediction"""
-        if len(actual_tweets) == 0:
-            return 1.0  # Neutral score
-
-        total_score = 0
-        total_weight = 0
-
-        # Map tweet positions to grid coordinates
-        current_grid_size = predicted_density.shape[0]
-        x_coords = (actual_tweets[:, 0] - self.spatial_bounds['x_min']) / (
-            self.spatial_bounds['x_max'] - self.spatial_bounds['x_min']) * (current_grid_size - 1)
-        y_coords = (actual_tweets[:, 1] - self.spatial_bounds['y_min']) / (
-            self.spatial_bounds['y_max'] - self.spatial_bounds['y_min']) * (current_grid_size - 1)
-
-        # Clamp to grid bounds
-        x_coords = np.clip(x_coords, 0, current_grid_size - 1).astype(int)
-        y_coords = np.clip(y_coords, 0, current_grid_size - 1).astype(int)
-
-        # Calculate FDS
-        for i in range(len(actual_tweets)):
-            grid_x, grid_y = x_coords[i], y_coords[i]
-            predicted_prob = predicted_density[grid_y, grid_x]  # Note: y,x for matrix indexing
-
-            # Simple uniform weighting for now (could add retweet weighting later)
-            weight = 1.0
-
-            total_score += predicted_prob * weight
-            total_weight += weight
-
-        return total_score / total_weight if total_weight > 0 else 1.0
 
     def _build_model_with_params(self, time_groups: List[np.ndarray], params: Dict):
         """Build the final model with optimized parameters"""
+        # Only keep the most recent periods needed for predictions
+        history_window = params['history_window']
+        recent_time_groups = time_groups[-history_window:] if len(time_groups) > history_window else time_groups
+
         # Convert each time period to density grid
         self.density_history = []
-        for period_data in time_groups:
+        for period_data in recent_time_groups:
             density_grid = self._tweets_to_density_grid(period_data)
             self.density_history.append(density_grid)
 

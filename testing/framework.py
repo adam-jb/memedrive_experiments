@@ -41,6 +41,56 @@ class TweetPredictor(ABC):
         """Return model name for logging"""
         pass
 
+    def calculate_fds_score(self, predicted_density: np.ndarray, actual_tweets: np.ndarray,
+                           grid_bounds: Tuple[Tuple[float, float], Tuple[float, float]]) -> float:
+        """Calculate Field Density Score for prediction
+
+        Args:
+            predicted_density: (grid_size, grid_size) array of predicted probabilities
+            actual_tweets: (N, 2) array of actual tweet positions
+            grid_bounds: ((x_min, x_max), (y_min, y_max)) spatial bounds of the grid
+
+        Returns:
+            FDS score where 1.0 is random performance, higher is better
+        """
+        if len(actual_tweets) == 0:
+            return 1.0  # Neutral score
+
+        total_score = 0
+        total_weight = 0
+
+        # Unpack grid bounds
+        (x_min, x_max), (y_min, y_max) = grid_bounds
+
+        # Map tweet positions to grid coordinates
+        current_grid_size = predicted_density.shape[0]
+        x_coords = (actual_tweets[:, 0] - x_min) / (x_max - x_min) * (current_grid_size - 1)
+        y_coords = (actual_tweets[:, 1] - y_min) / (y_max - y_min) * (current_grid_size - 1)
+
+        # Clamp to grid bounds
+        x_coords = np.clip(x_coords, 0, current_grid_size - 1).astype(int)
+        y_coords = np.clip(y_coords, 0, current_grid_size - 1).astype(int)
+
+        # Calculate expected random probability (uniform distribution)
+        expected_random_prob = 1.0 / (current_grid_size ** 2)
+
+        # Calculate FDS
+        for i in range(len(actual_tweets)):
+            grid_x, grid_y = x_coords[i], y_coords[i]
+            predicted_prob = predicted_density[grid_y, grid_x]  # Note: y,x for matrix indexing
+
+            # FDS = actual_probability / expected_random_probability
+            # Score of 1.0 = random performance, >1.0 = better than random
+            fds_contribution = predicted_prob / expected_random_prob
+
+            # Simple uniform weighting for now (could add retweet weighting later)
+            weight = 1.0
+
+            total_score += fds_contribution * weight
+            total_weight += weight
+
+        return total_score / total_weight if total_weight > 0 else 1.0
+
 class DataLoader:
     """Handles loading and preprocessing tweet data"""
 
@@ -220,58 +270,6 @@ class ProbabilisticEvaluator:
 
         return density / density_sum
 
-    def field_density_score(self, predicted_grid: np.ndarray,
-                          true_tweet_positions: np.ndarray, grid_bounds: tuple,
-                          tweet_importance_weights: np.ndarray = None) -> float:
-        """Calculate field density score based on tweet positions on probability grid
-
-        Args:
-            predicted_grid: N×N grid where each cell is relative probability (mean=1)
-            true_tweet_positions: Actual tweet positions in coordinate space
-            grid_bounds: ((x_min, x_max), (y_min, y_max)) bounds of the grid
-            tweet_importance_weights: Optional weights for each tweet (default: all equal)
-
-        Returns:
-            Score where:
-            - 1.0 = random performance (baseline)
-            - 0.0 = perfectly wrong (impossible worst case)
-            - >1.0 = better than random (higher is better)
-        """
-        if len(true_tweet_positions) == 0:
-            return 1.0  # No tweets to evaluate
-
-        # Ensure predicted grid has mean = 1 (proper probability field)
-        predicted_grid = predicted_grid / predicted_grid.mean()
-
-        # Default to equal importance for all tweets
-        if tweet_importance_weights is None:
-            tweet_importance_weights = np.ones(len(true_tweet_positions))
-
-        # Normalize importance weights
-        tweet_importance_weights = tweet_importance_weights / tweet_importance_weights.sum()
-
-        # Map tweet positions to grid coordinates
-        (x_min, x_max), (y_min, y_max) = grid_bounds
-        grid_size = predicted_grid.shape[0]
-
-        scores = []
-        for tweet_pos in true_tweet_positions:
-            # Convert tweet position to grid indices
-            x_idx = int((tweet_pos[0] - x_min) / (x_max - x_min) * (grid_size - 1))
-            y_idx = int((tweet_pos[1] - y_min) / (y_max - y_min) * (grid_size - 1))
-
-            # Clamp to grid bounds
-            x_idx = max(0, min(grid_size - 1, x_idx))
-            y_idx = max(0, min(grid_size - 1, y_idx))
-
-            # Get probability at this tweet's location
-            tweet_probability = predicted_grid[y_idx, x_idx]
-            scores.append(tweet_probability)
-
-        # Calculate weighted average score
-        weighted_score = np.average(scores, weights=tweet_importance_weights)
-
-        return weighted_score
 
 
     def _plot_prediction_heatmap(self, predicted_density: np.ndarray, true_density: np.ndarray,
@@ -471,7 +469,7 @@ class ProbabilisticEvaluator:
                 grid_bounds = ((0, 8), (0, 6))
 
             # Calculate new field density score (replaces PWS)
-            field_score = self.field_density_score(predicted_density, week_positions, grid_bounds)
+            field_score = model.calculate_fds_score(predicted_density, week_positions, grid_bounds)
             scores.append(field_score)
             tweet_counts.append(len(week_positions))
 

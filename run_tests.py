@@ -31,13 +31,16 @@ def main():
                                 animate_models=animate_models,
                                 grid_size=grid_size)
 
-    # Add baseline models
+    # Add baseline models. Random model has FDS of 1
     framework.add_model(RandomModel())
     # framework.add_model(GaussianSmoothedHistoricalModel(gaussian_bandwidth=0.05))
 
+    # FDS of about 7.5
+    #framework.add_model(HistoricalAverageModel(bandwidth=0.1))
+
     # Add drift field model with default parameters
     framework.add_model(DriftFieldModel())
-    framework.add_model(HistoricalAverageModel(bandwidth=0.1))
+
 
     results = framework.run_evaluation(test_weeks=10)
 
