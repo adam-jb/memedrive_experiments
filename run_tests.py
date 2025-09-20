@@ -13,10 +13,10 @@ def main():
     csv_path = '~/Desktop/memedrive_experiments/output_data/community_archive_good_faith_embeddings.csv'
 
     # Use larger sample to get more test tweets
-    sample_size = 10_000  # Set to None to have all
+    sample_size = 100_000  # Set to None to have all
 
     # Date window parameters (None = use all data). YYYY-mm-dd
-    start_date = '2023-01-01'  # e.g., '2024-01-01'
+    start_date = '2022-01-01'  # e.g., '2024-01-01'
     end_date =  '2024-12-31'    # e.g., '2024-12-31'
 
     # Models to animate (set to empty list to disable)
@@ -31,18 +31,17 @@ def main():
                                 animate_models=animate_models,
                                 grid_size=grid_size)
 
-    # Add baseline models. Random model has FDS of 1
+    # Random model has FDS of 1
     framework.add_model(RandomModel())
-    # framework.add_model(GaussianSmoothedHistoricalModel(gaussian_bandwidth=0.05))
 
-    # FDS of about 7.5
-    #framework.add_model(HistoricalAverageModel(bandwidth=0.1))
+    # Our baseline model
+    framework.add_model(HistoricalAverageModel(bandwidth=0.1))
 
-    # Add drift field model with default parameters
+    # Modelling we're hoping beats baseline
     framework.add_model(DriftFieldModel())
 
 
-    results = framework.run_evaluation(test_weeks=10)
+    results = framework.run_evaluation(test_weeks=20)
 
     # Print results
     framework.print_results(results)

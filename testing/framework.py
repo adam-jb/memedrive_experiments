@@ -77,7 +77,7 @@ class TweetPredictor(ABC):
         # Calculate FDS
         for i in range(len(actual_tweets)):
             grid_x, grid_y = x_coords[i], y_coords[i]
-            predicted_prob = predicted_density[grid_y, grid_x]  # Note: y,x for matrix indexing
+            predicted_prob = predicted_density[grid_y, grid_x]  # Correct: [row, col] = [y, x] indexing
 
             # FDS = actual_probability / expected_random_probability
             # Score of 1.0 = random performance, >1.0 = better than random

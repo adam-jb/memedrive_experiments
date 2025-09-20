@@ -102,11 +102,6 @@ allow predictions to be made in embeddings of over 2 dimensions (this may alread
 
 
 
-## Notes on model performance
-drift field does worse than baseline far, esp diffusing too far from the usual - should be more weighted to the background or something like that
-
-
-
 
 
 ## On the sliding window

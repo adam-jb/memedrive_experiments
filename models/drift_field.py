@@ -15,20 +15,20 @@ warnings.filterwarnings('ignore')
 class DriftFieldModel(TweetPredictor):
     """Drift field model that learns momentum patterns in tweet density flow"""
 
-    # Bayesian optimization parameter spaces
+    # Bayesian optimization parameter spaces - aggressive ranges for learning
     PARAM_SPACE = [
         # Temporal parameters
-        Integer(3, 14, name='history_window'),              # How many past timesteps to use
-        Real(0.01, 0.5, name='temporal_decay'),            # How much density fades per timestep
+        Integer(2, 10, name='history_window'),              # How many past timesteps to use
+        Real(0.001, 0.8, name='temporal_decay'),           # How much density fades per timestep
 
         # Movement & Flow parameters
-        Real(0.1, 4.0, name='drift_scale'),                # How many grid cells density moves per timestep
+        Real(0.1, 3.0, name='drift_scale'),                # How many grid cells density moves per timestep
         Real(0.1, 0.95, name='momentum_weight'),           # Fraction following learned patterns vs random spread
-        Real(0.05, 0.95, name='density_persistence'),     # Fraction staying in same cell vs moving
+        Real(0.1, 0.9, name='density_persistence'),       # Fraction staying in same cell vs moving
 
         # Spatial processing parameters
-        Integer(2, 7, name='correlation_window_size'),     # Size of neighborhood for flow detection
-        Real(0.1, 1.5, name='diffusion_strength'),        # Gaussian blur for uncertainty spreading
+        Integer(2, 6, name='correlation_window_size'),     # Size of neighborhood for flow detection
+        Real(0.01, 0.8, name='diffusion_strength'),       # Gaussian blur for uncertainty spreading
 
         # Tweet importance (kept simple for now)
         Real(1.0, 3.0, name='retweet_importance_weight')   # Retweet weighting in FDS
@@ -37,12 +37,12 @@ class DriftFieldModel(TweetPredictor):
     # Default parameters (used as fallback)
     DEFAULT_PARAMS = {
         'history_window': 7,
-        'temporal_decay': 0.15,
-        'drift_scale': 1.5,
+        'temporal_decay': 0.01,          # REDUCED from 0.15
+        'drift_scale': 1.0,              # REDUCED from 1.5
         'momentum_weight': 0.7,
-        'density_persistence': 0.5,
+        'density_persistence': 0.6,      # INCREASED from 0.5 to keep more density in place
         'correlation_window_size': 3,
-        'diffusion_strength': 0.3,
+        'diffusion_strength': 0.05,      # GREATLY REDUCED from 0.3
         'retweet_importance_weight': 1.5
     }
 
@@ -122,21 +122,21 @@ class DriftFieldModel(TweetPredictor):
             # Cross-validate this parameter set
             avg_fds = self._cross_validate_params(time_groups, params)
 
-            # Simple progress output
-            print(f".", end="", flush=True)
+            # Debug output - show actual scores to understand learning
+            print(f"FDS={avg_fds:.4f} (decay={params['temporal_decay']:.3f}, diff={params['diffusion_strength']:.3f}) ", end="", flush=True)
 
             # Bayesian optimization minimizes, so return negative FDS
             return -avg_fds
 
         # Run Bayesian optimization - single core, simple approach
-        n_calls = 50  # Full optimization now that model works
+        n_calls = 100  # Increased for better parameter learning
         print(f"Running Bayesian optimization with {n_calls} evaluations...")
 
         result = gp_minimize(
             func=objective,
             dimensions=self.PARAM_SPACE,
             n_calls=n_calls,
-            n_initial_points=10,  # Random exploration points
+            n_initial_points=20,  # More random exploration points
             acq_func='gp_hedge',  # Robust acquisition function
             random_state=42,
             verbose=False  # Reduce noise
@@ -428,7 +428,7 @@ class DriftFieldModel(TweetPredictor):
         density = np.zeros((current_grid_size, current_grid_size))
 
         # Place small Gaussian around each tweet
-        gaussian_sigma = 0.5  # Small radius of influence
+        gaussian_sigma = 0.2  # Moderate radius - let model learn optimal via diffusion_strength
         for tweet_pos in tweets:
             # Calculate squared distances
             dist_sq = ((xx - tweet_pos[0])**2 + (yy - tweet_pos[1])**2)
