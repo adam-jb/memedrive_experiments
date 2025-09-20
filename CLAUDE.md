@@ -76,10 +76,10 @@ Add parameter in main runner, which if set leads to making an animation with 2 f
 
 
 ## The most important things to get this show on the road
-0. Do all file logging as set out in 'to do one day' below
 1. Convert data to a meaningful set of dimensions (the 2d good faith ones aren’t so good: there needs to be signal for the models to find)
 2. Make 'weight' account for each tweet in calculate_fds_score() (testing/framework.py)
 3. Test models with high resolution
+4. Adapt code to allow predictions to be made in embeddings of over 2 dimensions (this may already be possible - am not sure)
 
 Models to try:
 0. make drift_field.py make better predictions: involving some refinement of the method. Use multicore if compute becomes bottleneck
@@ -93,18 +93,8 @@ Things which might help:
 
 
 
-## TO DO ONE DAY
-- make clearer in file names that testing framework is set up for good faith embeddings
-- make clear (written instructions) how to adapt the testing framework for other embeddings of tweets
-- map out all files, categorise them, and make clear where things might want to change
 
-allow predictions to be made in embeddings of over 2 dimensions (this may already be possible - am not sure)
-
-
-
-
-
-## On the sliding window
+## On the sliding window in drift field method
 as i understand it, sliding window is best bc we only train up to history_window anyway and dont use older data, so sliding window size should be a a function of that. so we learn params for drift field with that, and we also apply said sliding window at test 
 
 
@@ -120,8 +110,100 @@ Add option to make bespoke versions for customers, which zoom in on particular a
 
 
 ## Files setting out approaches to ultimately move to new model framework 
-- Approaches described in preproc/good_faith/READMD.md
+- Approaches described in preproc/good_faith/README.md
 
+
+## Info on scripts
+
+  Visualization/Animation and/or preprocessing:
+  - preproc/network_analysis.html: .html extraction of a python notebook (originally run in microsoft fabric) which downloads all the data from the community archive and stores them in azure blob storage. Could adapt this to download freah copies of the community archive
+  - preproc/download_community_archive.py: one-use-only code to download preprocessed community archive data from azure blob storage with a SAS token. Won't work now the SAS token has run out. 
+  - preproc/embed_community_archive.py: use sentence-transformers/all-mpnet-base-v2 model to make embeddings of all tweets in the community archive, using locally run model (uses GPU of M1 Pro). Embeddings are based on the main text of the tweet (text only - ignores if replying to someone or not, and any images) Saves them all as a large matrix, with the row indices mirroring those in the main community archive parquet file
+  - preproc/umap_embeddings.py: train UMAP model on a sample of community archive embeddings, then apply to all of them, to get 2d representation of the embeddings
+  - plotly_interactive.py: makes an interactive plotly chart of all 2d embeddings, with a slider to move between weeks. and shows the tweets on hover. Makes a 500mb html file.
+  - plot_animation.py: makes gif with frame for each week of 2d embeddings. Same data as shown in plotly_interactive.py but simpler representation.
+  - preproc/datamapplot_animation.py: similar to other plots but using datamapplot py library
+
+
+  Good Faith Processing:
+  - preproc/good_faith/get_good_faith_ratings.py: get GPT to rate how 'good faith' tweets are according to 3 criteria (thus giving us 3d information for the sample tweets). At time of writing the criteria (which I think have plenty of room to improve) are sincerity, charity and constructiveness (issues with these 3 is they leave out humour, and the lack of context of isolated tweets make this hard to judge)
+  - preproc/good_faith/create_transformation_matrix.py: both learns and applies a transformation matrix to convert the embeddings matrix of all tweets to 3d, where the 3 dimensions map to the good faith ratings as judged by GPT. It's essentially a linear model, predicting each of the 3 dimensions, with all 768 embeddings as features
+  - preproc/good_faith/3d_to_2d_umap.py - train UMAP on a sample of tweets, and apply to all tweets, to convert from 3d to 2d (input data is on 3 dimensions of 'good faith' and output is 2d). If the good faith ratings were obtained in 2d in the first place this script could be skipped
+  - preproc/good_faith/explorer_preproc.py: 
+
+  Good Faith visualisations: 
+  - preproc/good_faith/explorer.html: could use this as the base for more general tweet explorer. Uses WebGL to render lots of points very fast. Nice design imo. Could make easier to host by loading the tooltip info from azure cosmos db or similar. Reads from a single file: tweet_timeseries.json - for this to not have CORS issue need to host a py server to view locally: `python3 -m http.server`
+
+  Predicting future tweets:
+  - run_tests.py - main test runner. Set params for the models you want to test here, and then run to get all your results. Reads data from community_archive_good_faith_embeddings.csv. Expected models to be defined in a consistent way
+  - models/baseline.py - simple baseline models, inc fully random (FDS=1), and baseline of taking density of all tweets in the training data, and applying nothing more than that
+  - models/drift_field.py - drift field implementation
+  - testing/framework.py - testing framework with FDS evaluation. Defines the base model class TweetPredictor, which all models inherit. Is called by run_tests.py and does lots of the heavy lifting of the testing process.
+
+
+where does 'community_archive_good_faith_embeddings.csv' get made? A: I'm not sure. I might have deleted the code for that. I think it would be made by running: 
+- preproc/good_faith/get_good_faith_ratings.py (but for only 2 dimensions as assessed by GPT, not 3, to save UMAP later)
+- preproc/good_faith/create_transformation_matrix.py: to model the 2d points for all tweets 
+- script to concat (sideways concat) the 2d coords and tweet data from input_data/community_archive.parquet
+Could likely adjust the above (and make scripts needed) to be more flexible, so its possible to specify new topics of interest & to target models at. Atm its for 'good faith', but there could be other things which are of interest. 
+
+where does 'tweet_timeseries.json' get made?
+- script (may now be deleted) converting community_archive_good_faith_embeddings.csv (am confident but not certain it has all the fields in the json) to json
+Looking at top few rows of the file:
+```
+{
+  "metadata": {
+    "total_days": 51,
+    "date_range": [
+      "2023-01-01",
+      "2023-02-20"
+    ],
+    "total_tweets": 2196452,
+    "total_unique_days": 953,
+    "avg_tweets_per_day": 2304.7764952780694,
+    "coordinate_bounds": {
+      "x_min": -2.046875,
+      "x_max": 1.9443359375,
+      "y_min": -2.0859375,
+      "y_max": 1.9248046875
+    }
+  },
+  "frames": {
+    "2023-01-01": [
+      {
+        "x": 1.0556640625,
+        "y": 0.673828125,
+        "full_text": "@koyashtik_ @visakanv How I understand it is:\nAdvice is always relevant to a specific context, but is worded with words that are more general than the context, so you can alway add some precision and caution. Then you make your statement more general and technically true, but less and less useful\n\nEg:",
+        "favorite_count": 3,
+        "retweet_count": 0,
+        "screen_name": "Tangrenin",
+        "age_days": 0,
+        "base_size": 2.5588457268119895,
+        "final_size": 2.5588457268119895,
+        "opacity": 1.0,
+        "tweet_date": "2023-01-01",
+        "current_date": "2023-01-01"
+      },
+      {
+        "x": 0.90625,
+        "y": 0.791015625,
+        "full_text": "@koyashtik_ @visakanv You can say \"One should stay strong in the face of adversity\".\n\nThen you think about it, and add caveats \"Well except sometimes, it's good show weakness and vulnerability\", \"Well and it can be a trap to try to be too strong and not accept defeat\" etc",
+        "favorite_count": 2,
+        "retweet_count": 0,
+        "screen_name": "Tangrenin",
+        "age_days": 0,
+        "base_size": 2.2727922061357857,
+        "final_size": 2.2727922061357857,
+        "opacity": 1.0,
+        "tweet_date": "2023-01-01",
+        "current_date": "2023-01-01"
+      },
+```
+
+
+
+## Datasets
+Community Archive = tweets made by several hundred prominent tweeters in the specific areas of twitter (eg 'TPOT')
 
 
 
