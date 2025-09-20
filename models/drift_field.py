@@ -4,44 +4,60 @@ from scipy.ndimage import gaussian_filter
 from scipy import stats
 from typing import Dict, List, Tuple
 import itertools
+from skopt import gp_minimize
+from skopt.space import Real, Integer
+from skopt.utils import use_named_args
+from concurrent.futures import ProcessPoolExecutor
+import multiprocessing
+import warnings
+warnings.filterwarnings('ignore')
 
 class DriftFieldModel(TweetPredictor):
     """Drift field model that learns momentum patterns in tweet density flow"""
 
-    # Default learnable parameters
-    LEARNABLE_PARAMETERS = {
-        # Temporal
-        'history_window': [7],                      # How many past timesteps to use for learning momentum patterns
-        'temporal_decay': [0.05, 0.1, 0.15, 0.2, 0.3],  # How much total density fades away each timestep (prevents infinite accumulation)
+    # Bayesian optimization parameter spaces
+    PARAM_SPACE = [
+        # Temporal parameters
+        Integer(3, 14, name='history_window'),              # How many past timesteps to use
+        Real(0.01, 0.5, name='temporal_decay'),            # How much density fades per timestep
 
-        # Movement & Flow
-        'drift_scale': [0.5, 1.0, 1.5, 2.0, 2.5],       # How many grid cells density moves per timestep when following momentum
-        'momentum_weight': [0.7],                   # What fraction of moving density follows learned patterns vs spreads randomly
-        'density_persistence': [0.1, 0.3, 0.5, 0.7, 0.9],  # What fraction of density stays in the same grid cell vs moves somewhere
+        # Movement & Flow parameters
+        Real(0.1, 4.0, name='drift_scale'),                # How many grid cells density moves per timestep
+        Real(0.1, 0.95, name='momentum_weight'),           # Fraction following learned patterns vs random spread
+        Real(0.05, 0.95, name='density_persistence'),     # Fraction staying in same cell vs moving
 
-        # Spatial Processing
-        'correlation_window_size': [3],             # Size of neighborhood (3x3) used to detect where density flowed from
-        'local_region_size': [12],                  # Size of spatial chunks for independent momentum calculations
+        # Spatial processing parameters
+        Integer(2, 7, name='correlation_window_size'),     # Size of neighborhood for flow detection
+        Real(0.1, 1.5, name='diffusion_strength'),        # Gaussian blur for uncertainty spreading
 
-        # Final Prediction
-        'diffusion_strength': [0.3],                # How much Gaussian blur to apply to final prediction (uncertainty spreading)
+        # Tweet importance (kept simple for now)
+        Real(1.0, 3.0, name='retweet_importance_weight')   # Retweet weighting in FDS
+    ]
 
-        # Tweet Importance in FDS
-        'retweet_importance_weight': [1.5],         # How much more retweeted tweets count in the Field Density Score metric
+    # Default parameters (used as fallback)
+    DEFAULT_PARAMS = {
+        'history_window': 7,
+        'temporal_decay': 0.15,
+        'drift_scale': 1.5,
+        'momentum_weight': 0.7,
+        'density_persistence': 0.5,
+        'correlation_window_size': 3,
+        'diffusion_strength': 0.3,
+        'retweet_importance_weight': 1.5
     }
 
     def __init__(self, params: Dict = None, grid_size: int = None):
         """Initialize with specific parameters or defaults"""
         if params is None:
-            # Use first value from each parameter list as default
-            params = {key: values[0] for key, values in self.LEARNABLE_PARAMETERS.items()}
+            params = self.DEFAULT_PARAMS.copy()
 
         self.params = params
-        self.grid_size = grid_size  # Will be set when predict_density is called
-        self.training_grid_size = None  # Will be set during fit()
+        self.grid_size = grid_size
+        self.training_grid_size = None
         self.density_history = []
         self.velocity_history = []
         self.spatial_bounds = None
+        self.time_groups_cache = None  # Cache for Bayesian optimization
 
     def fit(self, train_data: np.ndarray, train_times: np.ndarray, grid_size: int = 50) -> None:
         """Learn density flow patterns and optimize parameters from historical data"""
@@ -65,9 +81,12 @@ class DriftFieldModel(TweetPredictor):
             self._build_model_with_params(time_groups, self.params)
             return
 
-        # Optimize parameters using sliding window cross-validation within training data
-        print("Optimizing parameters...")
-        best_params = self._optimize_parameters(time_groups)
+        # Cache time groups for Bayesian optimization
+        self.time_groups_cache = time_groups
+
+        # Optimize parameters using Bayesian optimization
+        print("Optimizing parameters with Bayesian optimization...")
+        best_params = self._optimize_parameters_bayesian(time_groups)
         self.params = best_params
 
         print(f"Best parameters found: {best_params}")
@@ -90,33 +109,48 @@ class DriftFieldModel(TweetPredictor):
         time_groups = self._group_by_time_periods(current_data, current_times)
         self._build_model_with_params(time_groups, self.params)
 
-    def _optimize_parameters(self, time_groups: List[np.ndarray]) -> Dict:
-        """Optimize parameters using sliding window validation"""
-        param_combinations = self._generate_parameter_combinations()
+    def _optimize_parameters_bayesian(self, time_groups: List[np.ndarray]) -> Dict:
+        """Optimize parameters using Bayesian optimization with multicore support"""
 
-        # Use subset for faster optimization
-        max_combinations = 2  # Limit to top combinations
-        if len(param_combinations) > max_combinations:
-            # Sample diverse combinations
-            import random
-            random.seed(42)  # Reproducible
-            param_combinations = random.sample(param_combinations, max_combinations)
+        # Define the objective function for Bayesian optimization
+        @use_named_args(self.PARAM_SPACE)
+        def objective(**params):
+            # Convert integer parameters
+            params['history_window'] = int(params['history_window'])
+            params['correlation_window_size'] = int(params['correlation_window_size'])
 
-        print(f"Testing {len(param_combinations)} parameter combinations...")
-
-        best_fds = -float('inf')
-        best_params = None
-
-        for i, params in enumerate(param_combinations):
             # Cross-validate this parameter set
             avg_fds = self._cross_validate_params(time_groups, params)
 
-            if avg_fds > best_fds:
-                best_fds = avg_fds
-                best_params = params
+            # Simple progress output
+            print(f".", end="", flush=True)
 
-            if (i + 1) % 10 == 0:
-                print(f"  Tested {i+1}/{len(param_combinations)}, best FDS: {best_fds:.6f}")
+            # Bayesian optimization minimizes, so return negative FDS
+            return -avg_fds
+
+        # Run Bayesian optimization - single core, simple approach
+        n_calls = 50  # Full optimization now that model works
+        print(f"Running Bayesian optimization with {n_calls} evaluations...")
+
+        result = gp_minimize(
+            func=objective,
+            dimensions=self.PARAM_SPACE,
+            n_calls=n_calls,
+            n_initial_points=10,  # Random exploration points
+            acq_func='gp_hedge',  # Robust acquisition function
+            random_state=42,
+            verbose=False  # Reduce noise
+        )
+
+        # Extract best parameters
+        param_names = [dim.name for dim in self.PARAM_SPACE]
+        best_params = dict(zip(param_names, result.x))
+
+        # Convert integer parameters
+        best_params['history_window'] = int(best_params['history_window'])
+        best_params['correlation_window_size'] = int(best_params['correlation_window_size'])
+
+        print(f"Best FDS score: {-result.fun:.6f}")
 
         return best_params
 
@@ -135,13 +169,11 @@ class DriftFieldModel(TweetPredictor):
         total_tests = len(test_periods)
 
         for i, test_idx in enumerate(test_periods):
-            # Show progress bar for this parameter combination's cross-validation
-            progress = (i + 1) / total_tests
-            bar_length = 20
-            filled_length = int(bar_length * progress)
-            bar = '█' * filled_length + '-' * (bar_length - filled_length)
-            print(f"\r    CV Progress: [{bar}] {i+1}/{total_tests} ({progress:.1%})", end='', flush=True)
-            # Use sliding window instead of expanding window for cross-validation
+            # Simplified progress tracking for Bayesian optimization
+            if (i + 1) % 5 == 0 or i == 0:
+                progress = (i + 1) / total_tests
+                print(f"\r    CV: {i+1}/{total_tests} ({progress:.1%})", end='', flush=True)
+            # Use sliding window matching history_window (consistent with model logic)
             window_size = params['history_window']
             start_idx = max(0, test_idx - window_size)
             train_periods = time_groups[start_idx:test_idx]
@@ -173,6 +205,8 @@ class DriftFieldModel(TweetPredictor):
                 grid_bounds = ((self.spatial_bounds['x_min'], self.spatial_bounds['x_max']),
                              (self.spatial_bounds['y_min'], self.spatial_bounds['y_max']))
                 fds_score = self.calculate_fds_score(predicted_density, test_period, grid_bounds)
+
+
                 fds_scores.append(fds_score * len(test_period))  # Weight by tweet count
                 total_tweets += len(test_period)
 
@@ -238,7 +272,7 @@ class DriftFieldModel(TweetPredictor):
             for j in range(current_grid_size):
                 current_cell_density = current_density[i, j]
 
-                if current_cell_density < 0.001:
+                if current_cell_density < 1e-10:  # Much smaller threshold
                     continue
 
                 # Split into staying vs moving
@@ -503,7 +537,7 @@ class DriftFieldModel(TweetPredictor):
             for j in range(current_grid_size):
                 current_cell_density = current_density[i, j]
 
-                if current_cell_density < 0.001:  # Skip very low density
+                if current_cell_density < 1e-10:  # Much smaller threshold
                     continue
 
                 # Step 1: Split into staying vs moving portions
@@ -578,13 +612,31 @@ class DriftFieldModel(TweetPredictor):
 
     @classmethod
     def generate_all_parameter_combinations(cls):
-        """Generate all possible parameter combinations for grid search"""
-        param_names = list(cls.LEARNABLE_PARAMETERS.keys())
-        param_values = list(cls.LEARNABLE_PARAMETERS.values())
+        """Generate parameter combinations from Bayesian optimization space for debugging"""
+        # Sample from the parameter space for debugging/testing
+        from skopt.sampler import Lhs
+        sampler = Lhs(lhs_type="classic", criterion=None)
+
+        n_samples = 100
+        samples = sampler.generate(cls.PARAM_SPACE, n_samples)
 
         combinations = []
-        for combo in itertools.product(*param_values):
-            param_dict = dict(zip(param_names, combo))
+        param_names = [dim.name for dim in cls.PARAM_SPACE]
+
+        for sample in samples:
+            param_dict = dict(zip(param_names, sample))
+            # Convert integer parameters
+            param_dict['history_window'] = int(param_dict['history_window'])
+            param_dict['correlation_window_size'] = int(param_dict['correlation_window_size'])
             combinations.append(param_dict)
 
         return combinations
+
+    def get_bayesian_search_summary(self) -> str:
+        """Return summary of Bayesian optimization setup"""
+        param_ranges = []
+        for dim in self.PARAM_SPACE:
+            if hasattr(dim, 'low') and hasattr(dim, 'high'):
+                param_ranges.append(f"{dim.name}: [{dim.low}, {dim.high}]")
+
+        return f"Bayesian optimization space:\n" + "\n".join(param_ranges)

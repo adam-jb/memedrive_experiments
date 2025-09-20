@@ -436,7 +436,23 @@ class ProbabilisticEvaluator:
             total_test_tweets += len(week_positions)
 
             # Update model state with data up to (but not including) this week
-            train_mask = all_df['datetime'] < week_data['datetime'].min()
+            # Use sliding window for drift field models, expanding window for others
+            if hasattr(model, 'params') and 'history_window' in model.params:
+                # Drift field model: use sliding window based on history_window
+                history_window_weeks = model.params['history_window']
+                current_time = week_data['datetime'].min()
+
+                # Calculate start time for sliding window (history_window weeks before current week)
+                start_time = current_time - pd.Timedelta(weeks=history_window_weeks)
+                train_mask = (all_df['datetime'] >= start_time) & (all_df['datetime'] < current_time)
+
+                # If sliding window is empty, fall back to all historical data
+                if train_mask.sum() == 0:
+                    train_mask = all_df['datetime'] < current_time
+            else:
+                # Other models: use all historical data (expanding window)
+                train_mask = all_df['datetime'] < week_data['datetime'].min()
+
             if train_mask.sum() == 0:
                 continue  # Skip if no training data
 

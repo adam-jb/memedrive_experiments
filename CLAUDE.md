@@ -1,4 +1,10 @@
 
+
+## Process thoughts for me (Adam)
+Could use some kind of methodological brain trust, esp to help me make good choices of model (particularly around favouring simplicity)
+
+
+
 ## Ways of working
 
 I prize simplicity: all your code should be extremely simple.
@@ -71,28 +77,12 @@ Add parameter in main runner, which if set leads to making an animation with 2 f
 
 ## The most important things to get this show on the road
 1. Convert data to a meaningful set of dimensions (the 2d good faith ones aren’t so good)
-2. Test models with high resolution
-3. make drift_field.py make better predictions; use bayesian opt to find the best params for it. Use multicore if compute becomes bottleneck
-4. Make 'weight' account for each tweet in calculate_fds_score() (testing/framework.py)
+2. Make 'weight' account for each tweet in calculate_fds_score() (testing/framework.py)
+3. Test models with high resolution
 
 Models to try:
+0. make drift_field.py make better predictions: involving some refinement of the method. Use multicore if compute becomes bottleneck
 1. Deep neural nets: maybe LSTM
-
-
-
-
-
-
-
-
-## Notes for using the model with customers
-
-Assuming we get a well calibrated model wihch is sensitive to inputs, our Field Density Score metric can be used to clearly tell the expected impact of how many tweets of a given sentiment their social media campaign will lead to, inc the movements in the broader 'weather fronts' (which could be simulated N steps into the future via stepwise Monte Carlo simulations of the model). Would want to link the expected increase in tweets to meaning for the customer (ie it is an indicator of broader sentiment, where we treat the movements in tweets as representative of movement in broader un-tweeted sentiment). For the latter claim would want to do a quick lit review to check how strongly that holds up (I imagine it holds up a bit, but not perfectly): if can quantify this extra source of uncertainty then that would be anaytically great, but may not add much value to customers (product might already be good enough).
-
-Add option to make bespoke versions for customers, which zoom in on particular areas. to implement: make an optional param which lets the users zoom in on a particular topic, defined as an N-dimensional box, and we only consider tweets in that box when evaluating (tho the training data can still use the full canvas, events outside the box could have predictive power so good to give the model access to this). 
-
-
-
 
 
 ## TO DO ONE DAY
@@ -103,6 +93,27 @@ Add option to make bespoke versions for customers, which zoom in on particular a
 allow predictions to be made in embeddings of over 2 dimensions (this may already be possible - am not sure)
 
 look for basins, clusters and what I might count as memeplexes
+
+
+## Notes on model performance
+drift field does worse than baseline far, esp diffusing too far from the usual - should be more weighted to the background or something like that
+
+
+
+
+
+## On the sliding window
+as i understand it, sliding window is best bc we only train up to history_window anyway and dont use older data, so sliding window size should be a a function of that. so we learn params for drift field with that, and we also apply said sliding window at test 
+
+
+
+
+## Notes for using the model with customers
+
+Assuming we get a well calibrated model wihch is sensitive to inputs, our Field Density Score metric can be used to clearly tell the expected impact of how many tweets of a given sentiment their social media campaign will lead to, inc the movements in the broader 'weather fronts' (which could be simulated N steps into the future via stepwise Monte Carlo simulations of the model). Would want to link the expected increase in tweets to meaning for the customer (ie it is an indicator of broader sentiment, where we treat the movements in tweets as representative of movement in broader un-tweeted sentiment). For the latter claim would want to do a quick lit review to check how strongly that holds up (I imagine it holds up a bit, but not perfectly): if can quantify this extra source of uncertainty then that would be anaytically great, but may not add much value to customers (product might already be good enough).
+
+Add option to make bespoke versions for customers, which zoom in on particular areas. to implement: make an optional param which lets the users zoom in on a particular topic, defined as an N-dimensional box, and we only consider tweets in that box when evaluating (tho the training data can still use the full canvas, events outside the box could have predictive power so good to give the model access to this). 
+
 
 
 
