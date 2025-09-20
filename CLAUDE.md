@@ -69,6 +69,12 @@ Add parameter in main runner, which if set leads to making an animation with 2 f
 
 
 
+where drift velocity come from?
+
+how many 'frames' go into predicting the next frame? controlled by history_window param
+
+
+
 ## TO DO NOW in order
 
 implement 'drift field' modelling approach, in new script under models/ folder
@@ -80,6 +86,10 @@ involves a mix of momentum (physics-based) of things, with uncertainty of that m
 IMPORTANT: Might want to a way to look at tweets day to day, so we're predicting with more temporal granularity: could improve the performance of the model if it can harness that level of detail
 
 want to optimise how diffuse the predicted probability density is such that it maximises FDS .
+
+important that the parameters which can be learned include the decay of a tweets impact
+
+important that some kind of 'movement' or 'momentum' is factored in for the general 'flow' of tweets in a given area, even though all tweets are static
 
 1) Drift-field change (directly tests “discourse begets discourse”)
 could this work if we dont have actual replies, only spatial closeness? Yes
@@ -93,7 +103,88 @@ Drift-field change (think GPT made this up) is better for noise, doesnt preserve
 I think drift-field change is more suited to our use case than Optical Transport.
 
 
+### Drift field params: can add more to improve model down the line (this is simpler approach)
+LEARNABLE_PARAMETERS = {
+      # Temporal
+      'history_window': [7],                      # How many past timesteps to use for learning momentum patterns
+      'temporal_decay': [0.05, 0.1, 0.15, 0.2, 0.3],  # How much total density fades away each timestep (prevents infinite accumulation)
 
+      # Movement & Flow
+      'drift_scale': [0.5, 1.0, 1.5, 2.0, 2.5],       # How many grid cells density moves per timestep when following momentum
+      'momentum_weight': [0.7],                   # What fraction of moving density follows learned patterns vs spreads randomly
+      'density_persistence': [0.1, 0.3, 0.5, 0.7, 0.9],  # What fraction of density stays in the same grid cell vs moves somewhere
+
+      # Spatial Processing
+      'correlation_window_size': [3],             # Size of neighborhood (3x3) used to detect where density flowed from
+      'local_region_size': [12],                  # Size of spatial chunks for independent momentum calculations
+
+      # Final Prediction
+      'diffusion_strength': [0.3],                # How much Gaussian blur to apply to final prediction (uncertainty spreading)
+
+      # Tweet Importance in FDS
+      'retweet_importance_weight': [1.5],         # How much more retweeted tweets count in the Field Density Score metric
+  }
+
+
+
+
+
+## Ways to make the drift field method more complicated
+  - Adaptive history window parameters (min/max/adaptation rate)
+  - Non-linear temporal weighting curves
+  - Tweet importance weighting (retweets, likes, etc.)
+  - Spatial adaptation parameters for different density regions
+
+
+
+## Thoughts on getting to adequate level of predictive modelling
+Need to increase frequency  of monitoring (that’s all on eval side), then factor in more granular tweets with timestamps and learnable decay factors (that’s all on predictive modelling side)
+
+
+
+ ## Claude's Questions about Drift Field Method:
+
+  1. Momentum Calculation
+  - How do you calculate "momentum" from tweet positions? Is it the velocity vector of density centroids between time steps?
+  - Do individual tweets have momentum, or does the overall density field have momentum?
+  A: I think... tweets dont have momentum, so it's more the chain of tweets that has momentum (eg tweets consistently moving in a particular path, not necessarily linear, and with lots of noise, but there being some kind of signal in the noise)
+
+  2. Temporal Granularity
+
+  - You mentioned predicting day-to-day vs week-to-week. Would the drift field model:
+    - Train on daily snapshots to learn finer-grained movement patterns?
+    A: daily seems good (with some temporal persistence of effects of tweets, which can be a learned parameter) In future we might do it even more granularly than daily (eg hourly or similar), given how fast thought contagions can move on twitter (Eg information cascades)
+    - Predict daily movements then aggregate to weekly predictions?
+    A: Can we have a paramenter to switch between daily and weekly on this? (With other options to add later)
+    - Or work directly at whatever time scale we specify?
+
+  3. Local vs Global Processing
+
+  - When you say "calculations on local levels" - do you mean:
+    - Divide the 2D space into regions and calculate drift for each region independently?
+    - Use sliding windows across the spatial grid?
+    - Process each grid cell based only on its immediate neighbors?
+    A: not sure, might be ok to ignore this
+
+  4. "Arrows of Movement"
+
+  - What exactly would these arrows represent?
+    - Velocity vectors showing how density is flowing from one region to another?
+    - Gradient fields pointing toward where tweets are likely to appear next?
+    - Something else?
+    A: the arrows would be in service of predicting the field density of where tweets are likley to appear next. However the velocity vectors might be good in the service of this. Thoughts?
+
+  5. Input/Output Structure
+
+  - Input: Would it take a sequence of historical density snapshots (e.g., last N weeks)?
+  - Output: A predicted density grid for the next time period, or also velocity/drift vectors?
+
+  6. "Discourse begets discourse"
+
+  - How would spatial closeness proxy for discourse relationships without actual reply chains?
+  - Is the idea that tweets in similar good-faith regions influence each other's future likelihood?
+
+  The physics analogy of "watching clouds drift" is compelling - are you envisioning something like fluid dynamics applied to tweet density fields?
 
 ## Notes for using the model with customers
 
@@ -112,6 +203,7 @@ Add option to make bespoke versions for customers, which zoom in on particular a
 
 allow predictions to be made in embeddings of over 2 dimensions (this may already be possible - am not sure)
 
+look for basins, clusters and what I might count as memeplexes
 
 
 
