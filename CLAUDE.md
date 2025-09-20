@@ -76,13 +76,21 @@ Add parameter in main runner, which if set leads to making an animation with 2 f
 
 
 ## The most important things to get this show on the road
-1. Convert data to a meaningful set of dimensions (the 2d good faith ones aren’t so good)
+0. Do all file logging as set out in 'to do one day' below
+1. Convert data to a meaningful set of dimensions (the 2d good faith ones aren’t so good: there needs to be signal for the models to find)
 2. Make 'weight' account for each tweet in calculate_fds_score() (testing/framework.py)
 3. Test models with high resolution
 
 Models to try:
 0. make drift_field.py make better predictions: involving some refinement of the method. Use multicore if compute becomes bottleneck
 1. Deep neural nets: maybe LSTM
+
+Other investigations:
+1. look for basins, clusters and what I might count as memeplexes
+
+Things which might help:
+1. Downloading and using the 1bn+ tweets dataset
+
 
 
 ## TO DO ONE DAY
@@ -92,7 +100,6 @@ Models to try:
 
 allow predictions to be made in embeddings of over 2 dimensions (this may already be possible - am not sure)
 
-look for basins, clusters and what I might count as memeplexes
 
 
 ## Notes on model performance
