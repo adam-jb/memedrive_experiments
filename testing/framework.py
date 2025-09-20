@@ -392,9 +392,13 @@ class ProbabilisticEvaluator:
                       train_positions: np.ndarray, train_times: np.ndarray,
                       test_positions: np.ndarray, test_times: np.ndarray,
                       grid_size: int = 100) -> Dict[str, float]:
-        """Comprehensive model evaluation with rolling window"""
+        """Comprehensive model evaluation with single training, multiple predictions"""
 
-        # Combine all data and sort by time
+        # TRAIN ONCE: Train the model on all training data
+        print(f"Training {model.get_name()} on {len(train_positions)} training tweets...")
+        model.fit(train_positions, train_times, grid_size)
+
+        # Combine all data and sort by time for sliding prediction
         all_positions = np.vstack([train_positions, test_positions])
         all_times = np.concatenate([train_times, test_times])
 
@@ -433,7 +437,7 @@ class ProbabilisticEvaluator:
 
             total_test_tweets += len(week_positions)
 
-            # Train model on all data up to (but not including) this week
+            # Update model state with data up to (but not including) this week
             train_mask = all_df['datetime'] < week_data['datetime'].min()
             if train_mask.sum() == 0:
                 continue  # Skip if no training data
@@ -441,8 +445,9 @@ class ProbabilisticEvaluator:
             week_train_positions = np.array(all_df[train_mask]['pos'].tolist())
             week_train_times = all_df[train_mask]['time'].values
 
-            # Train model on expanding window
-            model.fit(week_train_positions, week_train_times, grid_size)
+            # Update model state for this prediction window (no re-training)
+            if hasattr(model, 'update_state'):
+                model.update_state(week_train_positions, week_train_times)
 
             # Predict density for this week
             predicted_density = model.predict_density(week_times, grid_size)[0]

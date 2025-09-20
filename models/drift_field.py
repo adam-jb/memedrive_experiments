@@ -65,15 +65,30 @@ class DriftFieldModel(TweetPredictor):
             self._build_model_with_params(time_groups, self.params)
             return
 
-        # Optimize parameters using sliding window cross-validation
+        # Optimize parameters using sliding window cross-validation within training data
         print("Optimizing parameters...")
         best_params = self._optimize_parameters(time_groups)
         self.params = best_params
 
         print(f"Best parameters found: {best_params}")
 
-        # Build final model with best parameters
+        # Build final model with best parameters using ALL training data
         self._build_model_with_params(time_groups, best_params)
+
+        # Store original training data for potential state updates
+        self.original_train_data = train_data.copy()
+        self.original_train_times = train_times.copy()
+
+    def update_state(self, current_data: np.ndarray, current_times: np.ndarray) -> None:
+        """Update model's internal state (density/velocity history) with new data
+        WITHOUT re-training parameters. Used for sliding window predictions.
+        """
+        if len(current_data) == 0:
+            return
+
+        # Rebuild density/velocity history with current data using EXISTING parameters
+        time_groups = self._group_by_time_periods(current_data, current_times)
+        self._build_model_with_params(time_groups, self.params)
 
     def _optimize_parameters(self, time_groups: List[np.ndarray]) -> Dict:
         """Optimize parameters using sliding window validation"""
@@ -311,9 +326,7 @@ class DriftFieldModel(TweetPredictor):
         """Predict density using drift field approach"""
         if grid_size is None:
             grid_size = self.training_grid_size or 50
-            
-        print('grid_size', grid_size)
-
+        
         # Set the grid size for predictions
         self.grid_size = grid_size
 

@@ -19,6 +19,10 @@ class HistoricalAverageModel(TweetPredictor):
         self.kde = KernelDensity(bandwidth=self.bandwidth, kernel='gaussian')
         self.kde.fit(train_data)
 
+    def update_state(self, current_data: np.ndarray, current_times: np.ndarray) -> None:
+        """Update model state - for historical average, no state update needed"""
+        pass  # Historical average doesn't change based on sliding window
+
     def predict_density(self, test_times: np.ndarray, grid_size: int = 100) -> np.ndarray:
         """Predict density as historical average for all time periods"""
         if self.train_positions is None or len(self.train_positions) == 0:
@@ -70,6 +74,10 @@ class RandomModel(TweetPredictor):
         """No training needed for random model"""
         pass
 
+    def update_state(self, current_data: np.ndarray, current_times: np.ndarray) -> None:
+        """Update model state - random model has no state to update"""
+        pass  # Random model doesn't use historical data
+
     def predict_density(self, test_times: np.ndarray, grid_size: int = 100) -> np.ndarray:
         """Always predict uniform distribution"""
         uniform_density = np.ones((grid_size, grid_size)) / (grid_size ** 2)
@@ -89,6 +97,10 @@ class GaussianSmoothedHistoricalModel(TweetPredictor):
     def fit(self, train_data: np.ndarray, train_times: np.ndarray, grid_size: int = 50) -> None:
         """Store training data for Gaussian smoothing"""
         self.train_positions = train_data
+
+    def update_state(self, current_data: np.ndarray, current_times: np.ndarray) -> None:
+        """Update model state - for Gaussian smoothed, no state update needed"""
+        pass  # Gaussian smoothed uses all training data, not sliding window
 
     def predict_density(self, test_times: np.ndarray, grid_size: int = 100) -> np.ndarray:
         """Predict density by placing Gaussians around each training tweet"""

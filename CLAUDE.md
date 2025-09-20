@@ -72,55 +72,12 @@ Add parameter in main runner, which if set leads to making an animation with 2 f
 ## The most important things to get this show on the road
 1. Convert data to a meaningful set of dimensions (the 2d good faith ones aren’t so good)
 2. Test models with high resolution
-3. increase max_combinations in drift_field.py; use bayesian opt to find the best params for it. Use multicore if compute becomes bottleneck
+3. make drift_field.py make better predictions; use bayesian opt to find the best params for it. Use multicore if compute becomes bottleneck
 
 Models to try:
 1. Deep neural nets: maybe LSTM
 
 
-
-
-## To do next
-rigth now the model learns optimal params afresh to predict each new timestep. We only want to learn optimal params once (ie do the training once), where the sliding window is used in all the train data to do this, and then applied to get 
-  the best results. Walk me through approach to implementing this and any issue with what i say
-
-⏺ You're absolutely right! The current implementation is inefficient and conceptually wrong. Let me walk through the current problem and the correct approach:
-
-  Current Problem
-
-  Right now, in the testing framework's evaluation loop, for each test week the model:
-  1. Calls model.fit() with all data up to that week
-  2. Inside fit(), it runs parameter optimization from scratch using cross-validation
-  3. This means we're re-learning optimal parameters for every single prediction week
-
-  This is both computationally wasteful and methodologically incorrect.
-
-  Correct Approach
-
-  We should:
-  1. Train once: Use all available training data to find the globally optimal parameters via cross-validation
-  2. Apply consistently: Use those same optimal parameters for all future predictions
-
-  Implementation Changes Needed
-
-  1. Separate parameter learning from model fitting:
-    - Move parameter optimization to happen once during initial training
-    - fit() should only build the density/velocity history with the already-optimized parameters
-  2. Modify the testing framework:
-    - Split the data once into train/test periods
-    - Call model.fit() once on the full training set (which does parameter optimization)
-    - Then for each test week, just call predict_density() (no re-training)
-
-  Potential Issues with This Approach
-
-  1. Data leakage concern: We need to ensure that parameter optimization only uses cross-validation within the training set, never touching test data
-  2. Temporal dependencies: The model learns from historical patterns, so we need to maintain the temporal structure during parameter optimization
-  3. Model state management: After initial training, the model needs to maintain its learned parameters and update its internal state (density/velocity history) as it makes predictions
-
-  Would you like me to implement this corrected approach? The main changes would be:
-  - Modify the testing framework to train once, predict many times
-  - Restructure DriftFieldModel.fit() to do parameter optimization only once
-  - Add a method to update model state between predictions without re-training
 
 
 
