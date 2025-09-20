@@ -9,7 +9,7 @@ class HistoricalAverageModel(TweetPredictor):
         self.bandwidth = bandwidth
         self.train_positions = None
 
-    def fit(self, train_data: np.ndarray, train_times: np.ndarray) -> None:
+    def fit(self, train_data: np.ndarray, train_times: np.ndarray, grid_size: int = 50) -> None:
         """Learn historical density pattern from training data"""
         self.train_positions = train_data
         if len(train_data) == 0:
@@ -66,7 +66,7 @@ class RandomModel(TweetPredictor):
     def __init__(self):
         pass
 
-    def fit(self, train_data: np.ndarray, train_times: np.ndarray) -> None:
+    def fit(self, train_data: np.ndarray, train_times: np.ndarray, grid_size: int = 50) -> None:
         """No training needed for random model"""
         pass
 
@@ -86,7 +86,7 @@ class GaussianSmoothedHistoricalModel(TweetPredictor):
         self.gaussian_bandwidth = gaussian_bandwidth
         self.train_positions = None
 
-    def fit(self, train_data: np.ndarray, train_times: np.ndarray) -> None:
+    def fit(self, train_data: np.ndarray, train_times: np.ndarray, grid_size: int = 50) -> None:
         """Store training data for Gaussian smoothing"""
         self.train_positions = train_data
 

@@ -69,122 +69,63 @@ Add parameter in main runner, which if set leads to making an animation with 2 f
 
 
 
-where drift velocity come from?
+## The most important things to get this show on the road
+1. Convert data to a meaningful set of dimensions (the 2d good faith ones aren’t so good)
+2. Test models with high resolution
+3. increase max_combinations in drift_field.py; use bayesian opt to find the best params for it. Use multicore if compute becomes bottleneck
 
-how many 'frames' go into predicting the next frame? controlled by history_window param
-
-
-
-## TO DO NOW in order
-
-implement 'drift field' modelling approach, in new script under models/ folder
-
-vague-ish details below of how this might look
-
-involves a mix of momentum (physics-based) of things, with uncertainty of that momentum, plus extra source of uncertainty of not knowing where tweets are going to be bc they are just hard to predict. The underlying theory is that there is some conservation of momentum between tweets. 
-
-IMPORTANT: Might want to a way to look at tweets day to day, so we're predicting with more temporal granularity: could improve the performance of the model if it can harness that level of detail
-
-want to optimise how diffuse the predicted probability density is such that it maximises FDS .
-
-important that the parameters which can be learned include the decay of a tweets impact
-
-important that some kind of 'movement' or 'momentum' is factored in for the general 'flow' of tweets in a given area, even though all tweets are static
-
-1) Drift-field change (directly tests “discourse begets discourse”)
-could this work if we dont have actual replies, only spatial closeness? Yes
-It's related to Optical Transport. They both give you “arrows showing how density moves between snapshots.” Intuition of the difference:
-- OT with smoothing = “Imagine you’re solving a logistics problem: every unit of density must be trucked from somewhere at time t to somewhere at time t+1 at minimal cost.”
-- Density-flow drift field = “Imagine you’re watching clouds and measuring how they drift frame-to-frame. You don’t worry about exact conservation; you just see local motion.”
-OT conserves all mass, so mass will be preserved between t and t+1: all the calculations are global and mass is conserved globally.
-
-Drift-field change (think GPT made this up) is better for noise, doesnt preserve mass globally, goes calculations on local levels (ie considers sections of the overall space sequentally and, I think, independently). Noise is controlled via local regularization rather than a globally set 'tau'
-
-I think drift-field change is more suited to our use case than Optical Transport.
+Models to try:
+1. Deep neural nets: maybe LSTM
 
 
-### Drift field params: can add more to improve model down the line (this is simpler approach)
-LEARNABLE_PARAMETERS = {
-      # Temporal
-      'history_window': [7],                      # How many past timesteps to use for learning momentum patterns
-      'temporal_decay': [0.05, 0.1, 0.15, 0.2, 0.3],  # How much total density fades away each timestep (prevents infinite accumulation)
 
-      # Movement & Flow
-      'drift_scale': [0.5, 1.0, 1.5, 2.0, 2.5],       # How many grid cells density moves per timestep when following momentum
-      'momentum_weight': [0.7],                   # What fraction of moving density follows learned patterns vs spreads randomly
-      'density_persistence': [0.1, 0.3, 0.5, 0.7, 0.9],  # What fraction of density stays in the same grid cell vs moves somewhere
 
-      # Spatial Processing
-      'correlation_window_size': [3],             # Size of neighborhood (3x3) used to detect where density flowed from
-      'local_region_size': [12],                  # Size of spatial chunks for independent momentum calculations
+## To do next
+rigth now the model learns optimal params afresh to predict each new timestep. We only want to learn optimal params once (ie do the training once), where the sliding window is used in all the train data to do this, and then applied to get 
+  the best results. Walk me through approach to implementing this and any issue with what i say
 
-      # Final Prediction
-      'diffusion_strength': [0.3],                # How much Gaussian blur to apply to final prediction (uncertainty spreading)
+⏺ You're absolutely right! The current implementation is inefficient and conceptually wrong. Let me walk through the current problem and the correct approach:
 
-      # Tweet Importance in FDS
-      'retweet_importance_weight': [1.5],         # How much more retweeted tweets count in the Field Density Score metric
-  }
+  Current Problem
+
+  Right now, in the testing framework's evaluation loop, for each test week the model:
+  1. Calls model.fit() with all data up to that week
+  2. Inside fit(), it runs parameter optimization from scratch using cross-validation
+  3. This means we're re-learning optimal parameters for every single prediction week
+
+  This is both computationally wasteful and methodologically incorrect.
+
+  Correct Approach
+
+  We should:
+  1. Train once: Use all available training data to find the globally optimal parameters via cross-validation
+  2. Apply consistently: Use those same optimal parameters for all future predictions
+
+  Implementation Changes Needed
+
+  1. Separate parameter learning from model fitting:
+    - Move parameter optimization to happen once during initial training
+    - fit() should only build the density/velocity history with the already-optimized parameters
+  2. Modify the testing framework:
+    - Split the data once into train/test periods
+    - Call model.fit() once on the full training set (which does parameter optimization)
+    - Then for each test week, just call predict_density() (no re-training)
+
+  Potential Issues with This Approach
+
+  1. Data leakage concern: We need to ensure that parameter optimization only uses cross-validation within the training set, never touching test data
+  2. Temporal dependencies: The model learns from historical patterns, so we need to maintain the temporal structure during parameter optimization
+  3. Model state management: After initial training, the model needs to maintain its learned parameters and update its internal state (density/velocity history) as it makes predictions
+
+  Would you like me to implement this corrected approach? The main changes would be:
+  - Modify the testing framework to train once, predict many times
+  - Restructure DriftFieldModel.fit() to do parameter optimization only once
+  - Add a method to update model state between predictions without re-training
 
 
 
 
 
-## Ways to make the drift field method more complicated
-  - Adaptive history window parameters (min/max/adaptation rate)
-  - Non-linear temporal weighting curves
-  - Tweet importance weighting (retweets, likes, etc.)
-  - Spatial adaptation parameters for different density regions
-
-
-
-## Thoughts on getting to adequate level of predictive modelling
-Need to increase frequency  of monitoring (that’s all on eval side), then factor in more granular tweets with timestamps and learnable decay factors (that’s all on predictive modelling side)
-
-
-
- ## Claude's Questions about Drift Field Method:
-
-  1. Momentum Calculation
-  - How do you calculate "momentum" from tweet positions? Is it the velocity vector of density centroids between time steps?
-  - Do individual tweets have momentum, or does the overall density field have momentum?
-  A: I think... tweets dont have momentum, so it's more the chain of tweets that has momentum (eg tweets consistently moving in a particular path, not necessarily linear, and with lots of noise, but there being some kind of signal in the noise)
-
-  2. Temporal Granularity
-
-  - You mentioned predicting day-to-day vs week-to-week. Would the drift field model:
-    - Train on daily snapshots to learn finer-grained movement patterns?
-    A: daily seems good (with some temporal persistence of effects of tweets, which can be a learned parameter) In future we might do it even more granularly than daily (eg hourly or similar), given how fast thought contagions can move on twitter (Eg information cascades)
-    - Predict daily movements then aggregate to weekly predictions?
-    A: Can we have a paramenter to switch between daily and weekly on this? (With other options to add later)
-    - Or work directly at whatever time scale we specify?
-
-  3. Local vs Global Processing
-
-  - When you say "calculations on local levels" - do you mean:
-    - Divide the 2D space into regions and calculate drift for each region independently?
-    - Use sliding windows across the spatial grid?
-    - Process each grid cell based only on its immediate neighbors?
-    A: not sure, might be ok to ignore this
-
-  4. "Arrows of Movement"
-
-  - What exactly would these arrows represent?
-    - Velocity vectors showing how density is flowing from one region to another?
-    - Gradient fields pointing toward where tweets are likely to appear next?
-    - Something else?
-    A: the arrows would be in service of predicting the field density of where tweets are likley to appear next. However the velocity vectors might be good in the service of this. Thoughts?
-
-  5. Input/Output Structure
-
-  - Input: Would it take a sequence of historical density snapshots (e.g., last N weeks)?
-  - Output: A predicted density grid for the next time period, or also velocity/drift vectors?
-
-  6. "Discourse begets discourse"
-
-  - How would spatial closeness proxy for discourse relationships without actual reply chains?
-  - Is the idea that tweets in similar good-faith regions influence each other's future likelihood?
-
-  The physics analogy of "watching clouds drift" is compelling - are you envisioning something like fluid dynamics applied to tweet density fields?
 
 ## Notes for using the model with customers
 
@@ -280,3 +221,134 @@ a: probabilistic: we're almost predicting the 'field density' of the tweets, and
 
 
 
+## Thoughts on memeplexes
+
+A memeplex is a cluster of memes which are mutually reinforcing
+
+Trumpism is such a cluster. With a strong meme at the centre (Trump himself) and many other memes which reinforce Trump to their own benefit.
+
+Trumpism was originally smaller, however other memes (ie public figures) decided (often correctly) that their own memes could grow if they aligned with Trump. So they support Trump, tapping into that energy while adding to the energy around Trump himself
+
+To replicate such a dynamic, one need a central meme (or, leader) who is popular and memetic enough that influential others feel that its in their self interest to support your leading meme. 
+
+I expect this would need to be done over a long timeline, in order to build the brand. With the dynamics of modern media, that timeline could be shorter than it used to be, however I think Trump and Farage have both benefitted from being public figures for over a decade now. In other words, their memes took a while to reach sufficient strength that many others would start trying to align themselves with them, and thus enter their memeplex
+
+As well as a strongly memetic leader, one also needs enough influencers (of all kinds) who will be receptive to their message. I think this might partially compensate for weakness of memetic strength of the leader, but a better way of thinking of this is as a 2nd angle of attack: go for memeticity of leadership (most important thing) then make the memes easy to support for the people you want to support them. If such an ecosystem of candidates already exists, then great! If it doesn't and you're playing the long game, you may want to invest in 'seeding' potential influencers: lots of low-cost, low-chance-of-success, high-reward bets. Such a seeding process might look similar to a startup incubator, but for ideologically aligned and promising influencers. 
+
+"Influencers" here means anyone with any form of public following, not just people who's main income comes from social media accounts.
+
+
+
+
+# Thoughts on drift field
+
+implement 'drift field' modelling approach, in new script under models/ folder
+
+vague-ish details below of how this might look
+
+involves a mix of momentum (physics-based) of things, with uncertainty of that momentum, plus extra source of uncertainty of not knowing where tweets are going to be bc they are just hard to predict. The underlying theory is that there is some conservation of momentum between tweets. 
+
+IMPORTANT: Might want to a way to look at tweets day to day, so we're predicting with more temporal granularity: could improve the performance of the model if it can harness that level of detail
+
+want to optimise how diffuse the predicted probability density is such that it maximises FDS .
+
+important that the parameters which can be learned include the decay of a tweets impact
+
+important that some kind of 'movement' or 'momentum' is factored in for the general 'flow' of tweets in a given area, even though all tweets are static
+
+1) Drift-field change (directly tests “discourse begets discourse”)
+could this work if we dont have actual replies, only spatial closeness? Yes
+It's related to Optical Transport. They both give you “arrows showing how density moves between snapshots.” Intuition of the difference:
+- OT with smoothing = “Imagine you’re solving a logistics problem: every unit of density must be trucked from somewhere at time t to somewhere at time t+1 at minimal cost.”
+- Density-flow drift field = “Imagine you’re watching clouds and measuring how they drift frame-to-frame. You don’t worry about exact conservation; you just see local motion.”
+OT conserves all mass, so mass will be preserved between t and t+1: all the calculations are global and mass is conserved globally.
+
+Drift-field change (think GPT made this up) is better for noise, doesnt preserve mass globally, goes calculations on local levels (ie considers sections of the overall space sequentally and, I think, independently). Noise is controlled via local regularization rather than a globally set 'tau'
+
+I think drift-field change is more suited to our use case than Optical Transport.
+
+
+### Drift field params: can add more to improve model down the line (this is simpler approach)
+LEARNABLE_PARAMETERS = {
+      # Temporal
+      'history_window': [7],                      # How many past timesteps to use for learning momentum patterns
+      'temporal_decay': [0.05, 0.1, 0.15, 0.2, 0.3],  # How much total density fades away each timestep (prevents infinite accumulation)
+
+      # Movement & Flow
+      'drift_scale': [0.5, 1.0, 1.5, 2.0, 2.5],       # How many grid cells density moves per timestep when following momentum
+      'momentum_weight': [0.7],                   # What fraction of moving density follows learned patterns vs spreads randomly
+      'density_persistence': [0.1, 0.3, 0.5, 0.7, 0.9],  # What fraction of density stays in the same grid cell vs moves somewhere
+
+      # Spatial Processing
+      'correlation_window_size': [3],             # Size of neighborhood (3x3) used to detect where density flowed from
+      'local_region_size': [12],                  # Size of spatial chunks for independent momentum calculations
+
+      # Final Prediction
+      'diffusion_strength': [0.3],                # How much Gaussian blur to apply to final prediction (uncertainty spreading)
+
+      # Tweet Importance in FDS
+      'retweet_importance_weight': [1.5],         # How much more retweeted tweets count in the Field Density Score metric
+  }
+
+
+## Ways to improve drift field method
+Learn params with bayesian optimisation rather than grid search: should learn better params in such cases
+
+
+
+## Ways to make the drift field method more complicated
+  - Adaptive history window parameters (min/max/adaptation rate)
+  - Non-linear temporal weighting curves
+  - Tweet importance weighting (retweets, likes, etc.)
+  - Spatial adaptation parameters for different density regions
+
+
+
+## Thoughts on getting to adequate level of predictive modelling
+Need to increase frequency  of monitoring (that’s all on eval side), then factor in more granular tweets with timestamps and learnable decay factors (that’s all on predictive modelling side)
+
+
+
+ ## Claude's Questions about Drift Field Method:
+
+  1. Momentum Calculation
+  - How do you calculate "momentum" from tweet positions? Is it the velocity vector of density centroids between time steps?
+  - Do individual tweets have momentum, or does the overall density field have momentum?
+  A: I think... tweets dont have momentum, so it's more the chain of tweets that has momentum (eg tweets consistently moving in a particular path, not necessarily linear, and with lots of noise, but there being some kind of signal in the noise)
+
+  2. Temporal Granularity
+
+  - You mentioned predicting day-to-day vs week-to-week. Would the drift field model:
+    - Train on daily snapshots to learn finer-grained movement patterns?
+    A: daily seems good (with some temporal persistence of effects of tweets, which can be a learned parameter) In future we might do it even more granularly than daily (eg hourly or similar), given how fast thought contagions can move on twitter (Eg information cascades)
+    - Predict daily movements then aggregate to weekly predictions?
+    A: Can we have a paramenter to switch between daily and weekly on this? (With other options to add later)
+    - Or work directly at whatever time scale we specify?
+
+  3. Local vs Global Processing
+
+  - When you say "calculations on local levels" - do you mean:
+    - Divide the 2D space into regions and calculate drift for each region independently?
+    - Use sliding windows across the spatial grid?
+    - Process each grid cell based only on its immediate neighbors?
+    A: not sure, might be ok to ignore this
+
+  4. "Arrows of Movement"
+
+  - What exactly would these arrows represent?
+    - Velocity vectors showing how density is flowing from one region to another?
+    - Gradient fields pointing toward where tweets are likely to appear next?
+    - Something else?
+    A: the arrows would be in service of predicting the field density of where tweets are likley to appear next. However the velocity vectors might be good in the service of this. Thoughts?
+
+  5. Input/Output Structure
+
+  - Input: Would it take a sequence of historical density snapshots (e.g., last N weeks)?
+  - Output: A predicted density grid for the next time period, or also velocity/drift vectors?
+
+  6. "Discourse begets discourse"
+
+  - How would spatial closeness proxy for discourse relationships without actual reply chains?
+  - Is the idea that tweets in similar good-faith regions influence each other's future likelihood?
+
+  The physics analogy of "watching clouds drift" is compelling - are you envisioning something like fluid dynamics applied to tweet density fields?

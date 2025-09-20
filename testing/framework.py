@@ -13,12 +13,13 @@ class TweetPredictor(ABC):
     """Abstract base class for tweet prediction models"""
 
     @abstractmethod
-    def fit(self, train_data: np.ndarray, train_times: np.ndarray) -> None:
+    def fit(self, train_data: np.ndarray, train_times: np.ndarray, grid_size: int = 50) -> None:
         """Train the model on historical data
 
         Args:
             train_data: (N, 2) array of tweet positions in 2D good-faith space
             train_times: (N,) array of timestamps for each tweet
+            grid_size: Resolution of density grid
         """
         pass
 
@@ -441,7 +442,7 @@ class ProbabilisticEvaluator:
             week_train_times = all_df[train_mask]['time'].values
 
             # Train model on expanding window
-            model.fit(week_train_positions, week_train_times)
+            model.fit(week_train_positions, week_train_times, grid_size)
 
             # Predict density for this week
             predicted_density = model.predict_density(week_times, grid_size)[0]

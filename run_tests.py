@@ -6,6 +6,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from testing.framework import TestingFramework
 from models.baseline import HistoricalAverageModel, RandomModel, GaussianSmoothedHistoricalModel
+from models.drift_field import DriftFieldModel
 
 def main():
     # Path to tweet data - use the larger 3.4M tweet dataset
@@ -19,10 +20,10 @@ def main():
     end_date =  '2024-12-31'    # e.g., '2024-12-31'
 
     # Models to animate (set to empty list to disable)
-    animate_models = ['Gaussian Smoothed Historical']
+    animate_models = ['DriftField'] #['Gaussian Smoothed Historical']
 
     # Grid resolution (e.g., 100 for 100x100 grid)
-    grid_size = 200
+    grid_size = 100
 
     print("Initializing testing framework...")
     framework = TestingFramework(csv_path, sample_size=sample_size,
@@ -32,8 +33,11 @@ def main():
 
     # Add baseline models
     framework.add_model(RandomModel())
+    # framework.add_model(GaussianSmoothedHistoricalModel(gaussian_bandwidth=0.05))
+
+    # Add drift field model with default parameters
+    framework.add_model(DriftFieldModel())
     framework.add_model(HistoricalAverageModel(bandwidth=0.1))
-    framework.add_model(GaussianSmoothedHistoricalModel(gaussian_bandwidth=0.05))
 
     results = framework.run_evaluation(test_weeks=10)
 
