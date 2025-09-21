@@ -4,10 +4,17 @@
 Could use some kind of methodological brain trust, esp to help me make good choices of model (particularly around favouring simplicity)
 
 
+## To run experiments
+
+May need to edit some params in the model files (Eg n_calls for the drift_field.py Bayes optimiser). Then set params and run `python run_tests.py`
+
+
+
+
 
 ## Ways of working
 
-I prize simplicity: all your code should be extremely simple.
+I prize simplicity: all your code should be extremely simple. Always the most simple possible while retaining all functionality.
 
 Where I ask for things, implement tho. do not be 'helpful' and try and add additional features: DO NOT DO THIS.
 
@@ -82,7 +89,7 @@ Add parameter in main runner, which if set leads to making an animation with 2 f
 4. Adapt code to allow predictions to be made in embeddings of over 2 dimensions (this may already be possible - am not sure)
 
 Models to try:
-0. make drift_field.py make better predictions: involving some refinement of the method. Use multicore if compute becomes bottleneck
+0. make drift_field.py make better predictions: involving some refinement of the method. See if there are any scaling laws between sample size and quality of predictions. Use multicore if compute becomes bottleneck. 
 1. Deep neural nets: maybe LSTM
 
 Other investigations:
@@ -129,7 +136,8 @@ Add option to make bespoke versions for customers, which zoom in on particular a
   - preproc/good_faith/get_good_faith_ratings.py: get GPT to rate how 'good faith' tweets are according to 3 criteria (thus giving us 3d information for the sample tweets). At time of writing the criteria (which I think have plenty of room to improve) are sincerity, charity and constructiveness (issues with these 3 is they leave out humour, and the lack of context of isolated tweets make this hard to judge)
   - preproc/good_faith/create_transformation_matrix.py: both learns and applies a transformation matrix to convert the embeddings matrix of all tweets to 3d, where the 3 dimensions map to the good faith ratings as judged by GPT. It's essentially a linear model, predicting each of the 3 dimensions, with all 768 embeddings as features
   - preproc/good_faith/3d_to_2d_umap.py - train UMAP on a sample of tweets, and apply to all tweets, to convert from 3d to 2d (input data is on 3 dimensions of 'good faith' and output is 2d). If the good faith ratings were obtained in 2d in the first place this script could be skipped
-  - preproc/good_faith/explorer_preproc.py: 
+  - create_community_archive_good_faith_embeddings.py: horizontally concat 2d good faith rankings and community_archive.parquet, to make file for main modelling: community_archive_good_faith_embeddings.csv
+
 
   Good Faith visualisations: 
   - preproc/good_faith/explorer.html: could use this as the base for more general tweet explorer. Uses WebGL to render lots of points very fast. Nice design imo. Could make easier to host by loading the tooltip info from azure cosmos db or similar. Reads from a single file: tweet_timeseries.json - for this to not have CORS issue need to host a py server to view locally: `python3 -m http.server`

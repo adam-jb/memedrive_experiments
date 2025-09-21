@@ -8,6 +8,8 @@ from scipy import stats
 import datetime
 import matplotlib.pyplot as plt
 import os
+import json
+import time
 
 class TweetPredictor(ABC):
     """Abstract base class for tweet prediction models"""
@@ -539,12 +541,34 @@ class TestingFramework:
 
     def __init__(self, data_path: str, sample_size: Optional[int] = None,
                  start_date: Optional[str] = None, end_date: Optional[str] = None,
-                 animate_models: list = None, grid_size: int = 100):
+                 animate_models: list = None, grid_size: int = 100,
+                 experiment_log_path: str = None, target_topic: str = 'general'):
         self.data_loader = DataLoader(data_path, sample_size, start_date, end_date)
         self.evaluator = ProbabilisticEvaluator()
         self.models = []
         self.animate_models = animate_models or []  # Models to create animations for
         self.grid_size = grid_size  # Grid resolution
+        self.target_topic = target_topic
+
+        # Create experiment_results directory if it doesn't exist
+        experiment_dir = Path('experiment_results')
+        experiment_dir.mkdir(exist_ok=True)
+
+        # Generate filename with timestamp if not provided
+        if experiment_log_path is None:
+            timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+            self.experiment_log_path = experiment_dir / f'experiment_{timestamp}.jsonl'
+        else:
+            self.experiment_log_path = Path(experiment_log_path)
+        self.experiment_config = {
+            'data_path': data_path,
+            'sample_size': sample_size,
+            'start_date': start_date,
+            'end_date': end_date,
+            'grid_size': grid_size,
+            'animate_models': animate_models
+        }
+        self.sample_size = sample_size
 
     def add_model(self, model: TweetPredictor):
         """Add a model to be tested"""
@@ -552,6 +576,9 @@ class TestingFramework:
 
     def run_evaluation(self, test_weeks: int = 1) -> Dict[str, Dict[str, float]]:
         """Run full evaluation pipeline"""
+        experiment_start_time = time.time()
+        self.experiment_timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+
         print("Loading data...")
         positions, times = self.data_loader.load_data()
 
@@ -567,12 +594,32 @@ class TestingFramework:
 
         for model in self.models:
             print(f"\nEvaluating {model.get_name()}...")
+            model_start_time = time.time()
+
             # Pass animation models to evaluator
             self.evaluator.animate_models = self.animate_models
             scores = self.evaluator.evaluate_model(
                 model, train_pos, train_times, test_pos, test_times, self.grid_size
             )
+
+            model_end_time = time.time()
+            model_runtime = model_end_time - model_start_time
+
             results[model.get_name()] = scores
+
+            # Capture model parameters after training
+            model_params = self._extract_model_params(model)
+
+            # Log experiment result
+            self._log_experiment_result(
+                model_name=model.get_name(),
+                model_params=model_params,
+                scores=scores,
+                runtime=model_runtime,
+                test_weeks=test_weeks,
+                train_size=len(train_pos),
+                test_size=len(test_pos)
+            )
 
         # Create animations after all models are evaluated
         if self.animate_models:
@@ -581,12 +628,56 @@ class TestingFramework:
 
         return results
 
+    def _extract_model_params(self, model: TweetPredictor) -> Dict[str, Any]:
+        """Extract parameters from model after training"""
+        params = {}
+
+        # Extract common model parameters
+        if hasattr(model, 'params'):
+            params = model.params.copy()
+        elif hasattr(model, 'bandwidth'):  # HistoricalAverageModel
+            params = {'bandwidth': model.bandwidth}
+        elif hasattr(model, 'gaussian_bandwidth'):  # GaussianSmoothedHistoricalModel
+            params = {'gaussian_bandwidth': model.gaussian_bandwidth}
+
+        return params
+
+    def _log_experiment_result(self, model_name: str, model_params: Dict[str, Any],
+                              scores: Dict[str, float], runtime: float, test_weeks: int,
+                              train_size: int, test_size: int):
+        """Log experiment result to JSONL file with model-specific filename"""
+        experiment_entry = {
+            'timestamp': datetime.datetime.now().isoformat(),
+            'model_name': model_name,
+            'model_params': model_params,
+            'config': self.experiment_config,
+            'scores': scores,
+            'runtime_seconds': runtime,
+            'test_weeks': test_weeks,
+            'train_size': train_size,
+            'test_size': test_size
+        }
+
+        # Create model-specific filename with target_topic and sample_size
+        # Extract base model name (before any parentheses with parameters)
+        base_model_name = model_name.split('(')[0].strip()
+        clean_model_name = base_model_name.replace(' ', '_')
+
+        # Add sample size to filename
+        sample_str = f"sample{self.sample_size}" if self.sample_size else "full"
+        model_log_path = Path('experiment_results') / f'{self.target_topic}_{clean_model_name}_{sample_str}_{self.experiment_timestamp}.jsonl'
+
+        # Append to model-specific JSONL file
+        with open(model_log_path, 'a') as f:
+            f.write(json.dumps(experiment_entry) + '\n')
+
     def print_results(self, results: Dict[str, Dict[str, float]]):
         """Print formatted results"""
         print("\n" + "="*50)
         print("EVALUATION RESULTS")
         print("="*50)
         print("Field Density Score: 1.0=random, >1.0=better than random, higher=better")
+        print(f"Results logged to: experiment_results/ directory")
 
         for model_name, scores in results.items():
             print(f"\n{model_name}:")

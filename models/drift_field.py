@@ -28,7 +28,7 @@ class DriftFieldModel(TweetPredictor):
 
         # Spatial processing parameters
         Integer(2, 6, name='correlation_window_size'),     # Size of neighborhood for flow detection
-        Real(0.01, 0.8, name='diffusion_strength'),       # Gaussian blur for uncertainty spreading
+        Real(0.001, 0.5, name='diffusion_strength'),       # Gaussian blur for uncertainty spreading
 
         # Tweet importance (kept simple for now)
         Real(1.0, 3.0, name='retweet_importance_weight')   # Retweet weighting in FDS
@@ -57,7 +57,6 @@ class DriftFieldModel(TweetPredictor):
         self.density_history = []
         self.velocity_history = []
         self.spatial_bounds = None
-        self.time_groups_cache = None  # Cache for Bayesian optimization
 
     def fit(self, train_data: np.ndarray, train_times: np.ndarray, grid_size: int = 50) -> None:
         """Learn density flow patterns and optimize parameters from historical data"""
@@ -80,9 +79,6 @@ class DriftFieldModel(TweetPredictor):
             # Use default parameters and build basic model
             self._build_model_with_params(time_groups, self.params)
             return
-
-        # Cache time groups for Bayesian optimization
-        self.time_groups_cache = time_groups
 
         # Optimize parameters using Bayesian optimization
         print("Optimizing parameters with Bayesian optimization...")
@@ -119,8 +115,8 @@ class DriftFieldModel(TweetPredictor):
             params['history_window'] = int(params['history_window'])
             params['correlation_window_size'] = int(params['correlation_window_size'])
 
-            # Cross-validate this parameter set
-            avg_fds = self._cross_validate_params(time_groups, params)
+            # Evaluate this parameter set using sliding window
+            avg_fds = self._evaluate_sliding_window(time_groups, params)
 
             # Debug output - show actual scores to understand learning
             print(f"FDS={avg_fds:.4f} (decay={params['temporal_decay']:.3f}, diff={params['diffusion_strength']:.3f}) ", end="", flush=True)
@@ -129,14 +125,14 @@ class DriftFieldModel(TweetPredictor):
             return -avg_fds
 
         # Run Bayesian optimization - single core, simple approach
-        n_calls = 100  # Increased for better parameter learning
+        n_calls = 200  # Increased for better parameter learning
         print(f"Running Bayesian optimization with {n_calls} evaluations...")
 
         result = gp_minimize(
             func=objective,
             dimensions=self.PARAM_SPACE,
             n_calls=n_calls,
-            n_initial_points=20,  # More random exploration points
+            n_initial_points=40,  # More random exploration points
             acq_func='gp_hedge',  # Robust acquisition function
             random_state=42,
             verbose=False  # Reduce noise
@@ -154,9 +150,9 @@ class DriftFieldModel(TweetPredictor):
 
         return best_params
 
-    def _cross_validate_params(self, time_groups: List[np.ndarray], params: Dict) -> float:
-        """Cross-validate a parameter set using sliding window"""
-        min_train_periods = max(3, params['history_window'])
+    def _evaluate_sliding_window(self, time_groups: List[np.ndarray], params: Dict) -> float:
+        """Evaluate a parameter set using sliding window temporal validation"""
+        min_train_periods = max(2, params['history_window'])
 
         if len(time_groups) < min_train_periods + 1:
             return 0.0  # Not enough data
@@ -172,7 +168,7 @@ class DriftFieldModel(TweetPredictor):
             # Simplified progress tracking for Bayesian optimization
             if (i + 1) % 5 == 0 or i == 0:
                 progress = (i + 1) / total_tests
-                print(f"\r    CV: {i+1}/{total_tests} ({progress:.1%})", end='', flush=True)
+                print(f"\r    Eval: {i+1}/{total_tests} ({progress:.1%})", end='', flush=True)
             # Use sliding window matching history_window (consistent with model logic)
             window_size = params['history_window']
             start_idx = max(0, test_idx - window_size)
@@ -322,17 +318,6 @@ class DriftFieldModel(TweetPredictor):
             )
             self.velocity_history.append(velocity_field)
 
-    def _generate_parameter_combinations(self):
-        """Generate parameter combinations for optimization"""
-        param_names = list(self.LEARNABLE_PARAMETERS.keys())
-        param_values = list(self.LEARNABLE_PARAMETERS.values())
-
-        combinations = []
-        for combo in itertools.product(*param_values):
-            param_dict = dict(zip(param_names, combo))
-            combinations.append(param_dict)
-
-        return combinations
 
     def predict_density(self, test_times: np.ndarray, grid_size: int = None) -> np.ndarray:
         """Predict density using drift field approach"""
@@ -610,33 +595,3 @@ class DriftFieldModel(TweetPredictor):
         param_str = f"decay={self.params['temporal_decay']:.2f}_drift={self.params['drift_scale']:.1f}_persist={self.params['density_persistence']:.1f}"
         return f"DriftField({param_str})"
 
-    @classmethod
-    def generate_all_parameter_combinations(cls):
-        """Generate parameter combinations from Bayesian optimization space for debugging"""
-        # Sample from the parameter space for debugging/testing
-        from skopt.sampler import Lhs
-        sampler = Lhs(lhs_type="classic", criterion=None)
-
-        n_samples = 100
-        samples = sampler.generate(cls.PARAM_SPACE, n_samples)
-
-        combinations = []
-        param_names = [dim.name for dim in cls.PARAM_SPACE]
-
-        for sample in samples:
-            param_dict = dict(zip(param_names, sample))
-            # Convert integer parameters
-            param_dict['history_window'] = int(param_dict['history_window'])
-            param_dict['correlation_window_size'] = int(param_dict['correlation_window_size'])
-            combinations.append(param_dict)
-
-        return combinations
-
-    def get_bayesian_search_summary(self) -> str:
-        """Return summary of Bayesian optimization setup"""
-        param_ranges = []
-        for dim in self.PARAM_SPACE:
-            if hasattr(dim, 'low') and hasattr(dim, 'high'):
-                param_ranges.append(f"{dim.name}: [{dim.low}, {dim.high}]")
-
-        return f"Bayesian optimization space:\n" + "\n".join(param_ranges)

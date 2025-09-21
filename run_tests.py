@@ -12,8 +12,11 @@ def main():
     # Path to tweet data - use the larger 3.4M tweet dataset
     csv_path = '~/Desktop/memedrive_experiments/output_data/community_archive_good_faith_embeddings.csv'
 
+    # Target topic
+    target_topic = 'good_faith'
+
     # Use larger sample to get more test tweets
-    sample_size = 100_000  # Set to None to have all
+    sample_size = 10_000  # Set to None to have all
 
     # Date window parameters (None = use all data). YYYY-mm-dd
     start_date = '2022-01-01'  # e.g., '2024-01-01'
@@ -29,7 +32,8 @@ def main():
     framework = TestingFramework(csv_path, sample_size=sample_size,
                                 start_date=start_date, end_date=end_date,
                                 animate_models=animate_models,
-                                grid_size=grid_size)
+                                grid_size=grid_size,
+                                target_topic=target_topic)
 
     # Random model has FDS of 1
     framework.add_model(RandomModel())
