@@ -133,74 +133,24 @@ Add option to make bespoke versions for customers, which zoom in on particular a
 
 
   Good Faith visualisations: 
-  - preproc/create_tweet_timeseries.py: makes the json file used by preproc/good_faith/explorer.html (thats the only file it needs). Makes this from a single file: output_data/community_archive_good_faith_embeddings.csv (could edit to take embeddings other than good faith)
+  - preproc/create_tweet_timeseries.py: makes the json file used by preproc/good_faith/explorer.html (thats the only file it needs). Makes this from a single file: output_data/community_archive_good_faith_embeddings.csv (could edit to take embeddings other than good faith). The created file (tweet_timeseries.json) is a newer version of tweet_timeseries_ORIGINAL_LEGACY.json, which includes a separate entry for each tweet a number of days after it happened, to model the 'fade out' process, whereas at time of writing (21st sept 2025) the newer one just has the current date of tweet and then it vanishes the next date. The initial weight of the tweet is also calculated with log10, as per below function, which I expect underweights the impact of larger tweets. So: room to improve this script to fix that!
+  ```python
+  def calculate_tweet_size(favorite_count, retweet_count):
+    """Calculate tweet size based on engagement metrics"""
+    # Using logarithmic scaling similar to the original
+    engagement = favorite_count + retweet_count
+    if engagement == 0:
+        return 1.0
+    return np.log10(engagement + 1) * 1.5 + 1.0
+  ```
   - preproc/good_faith/explorer.html: could use this as the base for more general tweet explorer. Uses WebGL to render lots of points very fast. Nice design imo. Could make easier to host by loading the tooltip info from azure cosmos db or similar. Reads from a single file: tweet_timeseries.json - for this to not have CORS issue need to host a py server to view locally: `python3 -m http.server`
 
   Predicting future tweets:
   - run_tests.py - main test runner. Set params for the models you want to test here, and then run to get all your results. Reads data from community_archive_good_faith_embeddings.csv. Expected models to be defined in a consistent way
-  - models/baseline.py - simple baseline models, inc fully random (FDS=1), and baseline of taking density of all tweets in the training data, and applying nothing more than that
+  - models/baseline.py - simple baseline models, inc fully random (FDS=1), and baseline of taking density of all tweets in the training data, and applying nothing more than that. 
   - models/drift_field.py - drift field implementation
   - testing/framework.py - testing framework with FDS evaluation. Defines the base model class TweetPredictor, which all models inherit. Is called by run_tests.py and does lots of the heavy lifting of the testing process.
 
-
-where does 'community_archive_good_faith_embeddings.csv' get made? A: I'm not sure. I might have deleted the code for that. I think it would be made by running: 
-- preproc/good_faith/get_good_faith_ratings.py (but for only 2 dimensions as assessed by GPT, not 3, to save UMAP later)
-- preproc/good_faith/create_transformation_matrix.py: to model the 2d points for all tweets 
-- script to concat (sideways concat) the 2d coords and tweet data from input_data/community_archive.parquet
-Could likely adjust the above (and make scripts needed) to be more flexible, so its possible to specify new topics of interest & to target models at. Atm its for 'good faith', but there could be other things which are of interest. 
-
-where does 'tweet_timeseries.json' get made?
-- script (may now be deleted) converting community_archive_good_faith_embeddings.csv (am confident but not certain it has all the fields in the json) to json
-Looking at top few rows of the file:
-```
-{
-  "metadata": {
-    "total_days": 51,
-    "date_range": [
-      "2023-01-01",
-      "2023-02-20"
-    ],
-    "total_tweets": 2196452,
-    "total_unique_days": 953,
-    "avg_tweets_per_day": 2304.7764952780694,
-    "coordinate_bounds": {
-      "x_min": -2.046875,
-      "x_max": 1.9443359375,
-      "y_min": -2.0859375,
-      "y_max": 1.9248046875
-    }
-  },
-  "frames": {
-    "2023-01-01": [
-      {
-        "x": 1.0556640625,
-        "y": 0.673828125,
-        "full_text": "@koyashtik_ @visakanv How I understand it is:\nAdvice is always relevant to a specific context, but is worded with words that are more general than the context, so you can alway add some precision and caution. Then you make your statement more general and technically true, but less and less useful\n\nEg:",
-        "favorite_count": 3,
-        "retweet_count": 0,
-        "screen_name": "Tangrenin",
-        "age_days": 0,
-        "base_size": 2.5588457268119895,
-        "final_size": 2.5588457268119895,
-        "opacity": 1.0,
-        "tweet_date": "2023-01-01",
-        "current_date": "2023-01-01"
-      },
-      {
-        "x": 0.90625,
-        "y": 0.791015625,
-        "full_text": "@koyashtik_ @visakanv You can say \"One should stay strong in the face of adversity\".\n\nThen you think about it, and add caveats \"Well except sometimes, it's good show weakness and vulnerability\", \"Well and it can be a trap to try to be too strong and not accept defeat\" etc",
-        "favorite_count": 2,
-        "retweet_count": 0,
-        "screen_name": "Tangrenin",
-        "age_days": 0,
-        "base_size": 2.2727922061357857,
-        "final_size": 2.2727922061357857,
-        "opacity": 1.0,
-        "tweet_date": "2023-01-01",
-        "current_date": "2023-01-01"
-      },
-```
 
 
 
