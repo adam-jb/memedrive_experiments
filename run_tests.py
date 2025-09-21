@@ -16,7 +16,7 @@ def main():
     target_topic = 'good_faith'
 
     # Use larger sample to get more test tweets
-    sample_size = 10_000  # Set to None to have all
+    sample_size = 1_000_000  # Set to None to have all
 
     # Date window parameters (None = use all data). YYYY-mm-dd
     start_date = '2022-01-01'  # e.g., '2024-01-01'

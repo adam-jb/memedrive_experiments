@@ -101,10 +101,6 @@ Things which might help:
 
 
 
-## On the sliding window in drift field method
-as i understand it, sliding window is best bc we only train up to history_window anyway and dont use older data, so sliding window size should be a a function of that. so we learn params for drift field with that, and we also apply said sliding window at test 
-
-
 
 
 ## Notes for using the model with customers
@@ -115,9 +111,6 @@ Add option to make bespoke versions for customers, which zoom in on particular a
 
 
 
-
-## Files setting out approaches to ultimately move to new model framework 
-- Approaches described in preproc/good_faith/README.md
 
 
 ## Info on scripts
@@ -140,6 +133,7 @@ Add option to make bespoke versions for customers, which zoom in on particular a
 
 
   Good Faith visualisations: 
+  - preproc/create_tweet_timeseries.py: makes the json file used by preproc/good_faith/explorer.html (thats the only file it needs). Makes this from a single file: output_data/community_archive_good_faith_embeddings.csv (could edit to take embeddings other than good faith)
   - preproc/good_faith/explorer.html: could use this as the base for more general tweet explorer. Uses WebGL to render lots of points very fast. Nice design imo. Could make easier to host by loading the tooltip info from azure cosmos db or similar. Reads from a single file: tweet_timeseries.json - for this to not have CORS issue need to host a py server to view locally: `python3 -m http.server`
 
   Predicting future tweets:
@@ -329,7 +323,12 @@ Drift-field change (think GPT made this up) is better for noise, doesnt preserve
 I think drift-field change is more suited to our use case than Optical Transport.
 
 
-### Drift field params: can add more to improve model down the line (this is simpler approach)
+## On the sliding window in drift field method
+as i understand it, sliding window is best bc we only train up to history_window anyway and dont use older data, so sliding window size should be a a function of that. so we learn params for drift field with that, and we also apply said sliding window at test 
+
+
+
+### Drift field params (may be out of date given the pace of development!): can add more to improve model down the line (this is simpler approach)
 LEARNABLE_PARAMETERS = {
       # Temporal
       'history_window': [7],                      # How many past timesteps to use for learning momentum patterns
