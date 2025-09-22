@@ -83,9 +83,7 @@ Add parameter in main runner, which if set leads to making an animation with 2 f
 
 
 ## The most important things to get this show on the road
-1. Convert data to a meaningful set of dimensions (the 2d good faith ones aren’t so good: there needs to be signal for the models to find)
-3. Adapt code to allow predictions to be made in embeddings of over 2 dimensions (this may already be possible - am not sure)
-
+1. Convert data to a meaningful set of dimensions (the 2d good faith ones aren’t so good: there needs to be signal for the models to find). What would be good? Maybe... enthusiasm... but we really are interested in good faith... so can we get that?
 
 Other investigations:
 1. look for basins, clusters and what I might count as memeplexes
@@ -93,6 +91,8 @@ Other investigations:
 Things which might help:
 1. Downloading and using the 1bn+ tweets dataset
 2. Make resolution higher
+3. Adapt code to allow predictions to be made in embeddings of over 2 dimensions (this may already be possible - am not sure)
+4. For LSTM in particular, can we give the full time series of embeddings to the model, even if we're only predicting the 2d (or whatever it is) space for the next day? There might be predictive power in those embeddings which is lost in the dimensionality reduction
 
 Coding clean up things to do one day:
 1. there is _fds_loss() in lstm_predictor.py too, which should really read the FDS func from framework, so we only have to define the formula once, or have the FDS func in a separate file to be sourced by all others
