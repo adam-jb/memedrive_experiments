@@ -90,7 +90,7 @@ Add parameter in main runner, which if set leads to making an animation with 2 f
 
 Models to try:
 0. make drift_field.py make better predictions: involving some refinement of the method. See if there are any scaling laws between sample size and quality of predictions. Use multicore if compute becomes bottleneck. 
-1. Deep neural nets: maybe LSTM
+1. Deep neural nets: maybe LSTM. Would want to create a time series of images for this.
 
 Other investigations:
 1. look for basins, clusters and what I might count as memeplexes
@@ -98,7 +98,9 @@ Other investigations:
 Things which might help:
 1. Downloading and using the 1bn+ tweets dataset
 
-
+Observations on Drift Field:
+1. It performs about the same as historical avg when trained on 100k sample and 200 bayes iters. However looking at the image, it distributes the predictions very differently to the baseline (clustering it too centrally). Makes me wonder if LSTM better
+2. Might do better with more granular data (ie daily not weekl: contagions can spread very fast so a week might not be granular enough to model the 'physics' of the system)
 
 
 
