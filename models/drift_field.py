@@ -46,8 +46,15 @@ class DriftFieldModel(TweetPredictor):
         'retweet_importance_weight': 1.5
     }
 
-    def __init__(self, params: Dict = None, grid_size: int = None):
-        """Initialize with specific parameters or defaults"""
+    def __init__(self, params: Dict = None, grid_size: int = None, n_calls: int = 100, n_initial_points: int = 20):
+        """Initialize with specific parameters or defaults
+
+        Args:
+            params: Model parameters (uses defaults if None)
+            grid_size: Grid size for predictions
+            n_calls: Number of Bayesian optimization iterations
+            n_initial_points: Number of random exploration points for Bayes opt
+        """
         if params is None:
             params = self.DEFAULT_PARAMS.copy()
 
@@ -58,7 +65,11 @@ class DriftFieldModel(TweetPredictor):
         self.velocity_history = []
         self.spatial_bounds = None
 
-    def fit(self, train_data: np.ndarray, train_times: np.ndarray, grid_size: int = 50) -> None:
+        # Bayesian optimization parameters
+        self.n_calls = n_calls
+        self.n_initial_points = n_initial_points
+
+    def fit(self, train_data: np.ndarray, train_times: np.ndarray, train_weights: np.ndarray = None, grid_size: int = 50) -> None:
         """Learn density flow patterns and optimize parameters from historical data"""
         if len(train_data) == 0:
             return
@@ -125,14 +136,13 @@ class DriftFieldModel(TweetPredictor):
             return -avg_fds
 
         # Run Bayesian optimization - single core, simple approach
-        n_calls = 100  # Increased for better parameter learning
-        print(f"Running Bayesian optimization with {n_calls} evaluations...")
+        print(f"Running Bayesian optimization with {self.n_calls} evaluations ({self.n_initial_points} initial points)...")
 
         result = gp_minimize(
             func=objective,
             dimensions=self.PARAM_SPACE,
-            n_calls=n_calls,
-            n_initial_points=20,  # More random exploration points
+            n_calls=self.n_calls,
+            n_initial_points=self.n_initial_points,
             acq_func='gp_hedge',  # Robust acquisition function
             random_state=42,
             verbose=False  # Reduce noise
@@ -593,5 +603,6 @@ class DriftFieldModel(TweetPredictor):
     def get_name(self) -> str:
         """Return model name for logging"""
         param_str = f"decay={self.params['temporal_decay']:.2f}_drift={self.params['drift_scale']:.1f}_persist={self.params['density_persistence']:.1f}"
-        return f"DriftField({param_str})"
+        bayes_str = f"n_calls={self.n_calls}_n_init={self.n_initial_points}"
+        return f"DriftField({param_str}_{bayes_str})"
 

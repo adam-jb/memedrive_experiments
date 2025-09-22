@@ -104,6 +104,7 @@ class LSTMTweetPredictor(TweetPredictor):
 
         # Store frame data for learnable sigma training
         self.frame_tweet_positions = None  # List of tweet positions for each frame
+        self.frame_tweet_weights = None    # List of tweet weights for each frame
         self.frame_bounds = None
         self.frame_sequence_indices = None  # Track which frames are used in sequences
 
@@ -208,8 +209,8 @@ class LSTMTweetPredictor(TweetPredictor):
         return density / density_sum
 
     def _fds_loss(self, predicted_density: torch.Tensor, tweet_positions: np.ndarray,
-                  grid_bounds: tuple, grid_size: int) -> torch.Tensor:
-        """Calculate FDS-based loss: negative log-likelihood of tweets under predicted density"""
+                  grid_bounds: tuple, grid_size: int, tweet_weights: np.ndarray = None) -> torch.Tensor:
+        """Calculate FDS-based loss: weighted negative log-likelihood of tweets under predicted density"""
         if len(tweet_positions) == 0:
             # If no tweets in this frame, return small penalty to encourage uniform distribution
             return torch.tensor(0.0, device=self.device)
@@ -230,21 +231,33 @@ class LSTMTweetPredictor(TweetPredictor):
         # Get predicted probabilities at actual tweet locations
         predicted_probs = pred_grid[y_coords, x_coords]  # Note: [row, col] = [y, x] indexing
 
-        # Calculate negative log-likelihood (FDS-style loss)
+        # Calculate weighted negative log-likelihood (FDS-style loss)
         # Add small epsilon for numerical stability
         epsilon = 1e-8
-        fds_loss = -torch.mean(torch.log(predicted_probs + epsilon))
+        log_probs = torch.log(predicted_probs + epsilon)
+
+        # Apply tweet importance weights
+        if tweet_weights is not None:
+            weights_tensor = torch.tensor(tweet_weights, dtype=torch.float32, device=self.device)
+            weighted_log_probs = log_probs * weights_tensor
+            fds_loss = -torch.sum(weighted_log_probs) / torch.sum(weights_tensor)
+        else:
+            fds_loss = -torch.mean(log_probs)
 
         return fds_loss
 
     def _prepare_time_series_data(self, positions: np.ndarray, times: np.ndarray,
-                                 grid_size: int) -> tuple:
+                                 grid_size: int, weights: np.ndarray = None) -> tuple:
         """Convert tweet data into time series of density grids"""
         # Convert to pandas for easier time manipulation
-        df = pd.DataFrame({
+        data_dict = {
             'time': pd.to_datetime(times),
             'positions': [pos for pos in positions]
-        })
+        }
+        if weights is not None:
+            data_dict['weights'] = weights
+
+        df = pd.DataFrame(data_dict)
         df = df.sort_values('time')
 
         # Determine grid bounds from all data
@@ -273,17 +286,28 @@ class LSTMTweetPredictor(TweetPredictor):
         # Create density grids for each time frame
         density_grids = []
         frame_positions_list = []  # Store for learnable sigma
+        frame_weights_list = []    # Store weights for each frame
 
         for start_time, end_time in time_frames:
             frame_mask = (df['time'] >= start_time) & (df['time'] < end_time)
-            frame_positions = np.array(df[frame_mask]['positions'].tolist()) if frame_mask.sum() > 0 else np.array([]).reshape(0, 2)
+            frame_data = df[frame_mask]
+
+            if len(frame_data) > 0:
+                frame_positions = np.array(frame_data['positions'].tolist())
+                frame_weights = frame_data['weights'].values if 'weights' in frame_data.columns else np.ones(len(frame_positions))
+            else:
+                frame_positions = np.array([]).reshape(0, 2)
+                frame_weights = np.array([])
+
             frame_positions_list.append(frame_positions)
+            frame_weights_list.append(frame_weights)
 
             density_grid = self._create_density_grid_from_tweets(frame_positions, grid_size, bounds)
             density_grids.append(density_grid.flatten())
 
         # Store frame data for learnable sigma
         self.frame_tweet_positions = frame_positions_list
+        self.frame_tweet_weights = frame_weights_list
         self.frame_bounds = bounds
 
         return np.array(density_grids), bounds
@@ -308,11 +332,12 @@ class LSTMTweetPredictor(TweetPredictor):
         self.frame_sequence_indices = sequence_target_indices
         return np.array(sequences_x), np.array(sequences_y)
 
-    def fit(self, train_data: np.ndarray, train_times: np.ndarray, grid_size: int = 50) -> None:
+    def fit(self, train_data: np.ndarray, train_times: np.ndarray, train_weights: np.ndarray = None, grid_size: int = 50) -> None:
         """Train the LSTM model on historical density sequences"""
         self.grid_size = grid_size
         self.train_positions = train_data
         self.train_times = train_times
+        self.train_weights = train_weights  # Store weights for potential use in loss function
 
         if len(train_data) == 0:
             print("Warning: No training data provided")
@@ -322,7 +347,7 @@ class LSTMTweetPredictor(TweetPredictor):
 
         # Convert tweet data to time series of density grids
         density_grids, self.bounds = self._prepare_time_series_data(
-            train_data, train_times, grid_size
+            train_data, train_times, grid_size, train_weights
         )
 
         if len(density_grids) <= self.sequence_length:
@@ -445,9 +470,10 @@ class LSTMTweetPredictor(TweetPredictor):
                     # Forward pass
                     predicted_density = self.model(input_seq)[0]  # Remove batch dimension
 
-                    # Calculate FDS loss
+                    # Calculate FDS loss with tweet weights
+                    target_tweet_weights = self.frame_tweet_weights[target_frame_idx] if self.frame_tweet_weights else None
                     fds_loss = self._fds_loss(predicted_density, target_tweet_positions,
-                                            self.frame_bounds, self.grid_size)
+                                            self.frame_bounds, self.grid_size, target_tweet_weights)
 
                     batch_loss += fds_loss
 
@@ -507,11 +533,6 @@ class LSTMTweetPredictor(TweetPredictor):
                             pred_max = torch.max(pred).item()
                             pred_min = torch.min(pred).item()
                             print(f"  Prediction diversity - Std: {pred_std:.6f}, Range: {pred_min:.6f} to {pred_max:.6f}")
-
-                            # Check if it's just predicting uniform distribution
-                            uniform_prob = 1.0 / (self.grid_size ** 2)
-                            uniform_diff = torch.mean(torch.abs(pred - uniform_prob)).item()
-                            print(f"  Distance from uniform: {uniform_diff:.6f}")
 
                             if pred_std < 1e-6:
                                 print("  WARNING: Model predicting nearly uniform distribution!")
@@ -608,13 +629,6 @@ class LSTMTweetPredictor(TweetPredictor):
                 avg_movement = np.mean(position_movements)
                 print(f"  Average center-of-mass movement between frames: {avg_movement:.6f}")
 
-        # Check if data is just random noise
-        uniform_diff = 1.0 / (self.grid_size ** 2)
-        if avg_similarity < uniform_diff * 2:
-            print("  INSIGHT: Frame differences are small - data may be mostly noise")
-            print("  INSIGHT: LSTM producing similar outputs might be optimal behavior")
-        else:
-            print("  INSIGHT: Significant frame differences exist - temporal learning could help")
 
     def update_state(self, current_data: np.ndarray, current_times: np.ndarray) -> None:
         """Update model state with new data - LSTM uses all historical data"""
@@ -631,7 +645,7 @@ class LSTMTweetPredictor(TweetPredictor):
 
         # Create recent history sequence for prediction
         density_grids, _ = self._prepare_time_series_data(
-            self.train_positions, self.train_times, grid_size
+            self.train_positions, self.train_times, grid_size, self.train_weights
         )
 
         if len(density_grids) < self.sequence_length:

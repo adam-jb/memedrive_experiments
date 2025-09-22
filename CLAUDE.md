@@ -84,7 +84,6 @@ Add parameter in main runner, which if set leads to making an animation with 2 f
 
 ## The most important things to get this show on the road
 1. Convert data to a meaningful set of dimensions (the 2d good faith ones aren’t so good: there needs to be signal for the models to find)
-2. Make 'weight' account for each tweet in calculate_fds_score() (testing/framework.py) [there is _fds_loss() in lstm_predictor.py too, which should really read the FDS func from framework, so we only have to define the formula once, or have the FDS func in a separate file to be sourced by all others]
 3. Adapt code to allow predictions to be made in embeddings of over 2 dimensions (this may already be possible - am not sure)
 
 
@@ -94,6 +93,11 @@ Other investigations:
 Things which might help:
 1. Downloading and using the 1bn+ tweets dataset
 2. Make resolution higher
+
+Coding clean up things to do one day:
+1. there is _fds_loss() in lstm_predictor.py too, which should really read the FDS func from framework, so we only have to define the formula once, or have the FDS func in a separate file to be sourced by all others
+
+
 
 
 ## Observations on Drift Field

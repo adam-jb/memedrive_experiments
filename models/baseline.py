@@ -9,13 +9,15 @@ class HistoricalAverageModel(TweetPredictor):
         self.bandwidth = bandwidth
         self.train_positions = None
 
-    def fit(self, train_data: np.ndarray, train_times: np.ndarray, grid_size: int = 50) -> None:
+    def fit(self, train_data: np.ndarray, train_times: np.ndarray, train_weights: np.ndarray = None, grid_size: int = 50) -> None:
         """Learn historical density pattern from training data"""
         self.train_positions = train_data
         if len(train_data) == 0:
             return
 
         # Fit KDE to all historical tweet positions
+        # Note: scikit-learn KDE doesn't support sample weights, so we ignore weights for now
+        # Could be enhanced to use weighted KDE in the future
         self.kde = KernelDensity(bandwidth=self.bandwidth, kernel='gaussian')
         self.kde.fit(train_data)
 
@@ -70,7 +72,7 @@ class RandomModel(TweetPredictor):
     def __init__(self):
         pass
 
-    def fit(self, train_data: np.ndarray, train_times: np.ndarray, grid_size: int = 50) -> None:
+    def fit(self, train_data: np.ndarray, train_times: np.ndarray, train_weights: np.ndarray = None, grid_size: int = 50) -> None:
         """No training needed for random model"""
         pass
 
@@ -94,9 +96,10 @@ class GaussianSmoothedHistoricalModel(TweetPredictor):
         self.gaussian_bandwidth = gaussian_bandwidth
         self.train_positions = None
 
-    def fit(self, train_data: np.ndarray, train_times: np.ndarray, grid_size: int = 50) -> None:
+    def fit(self, train_data: np.ndarray, train_times: np.ndarray, train_weights: np.ndarray = None, grid_size: int = 50) -> None:
         """Store training data for Gaussian smoothing"""
         self.train_positions = train_data
+        self.train_weights = train_weights  # Store weights for potential weighted Gaussian placement
 
     def update_state(self, current_data: np.ndarray, current_times: np.ndarray) -> None:
         """Update model state - for Gaussian smoothed, no state update needed"""
@@ -129,13 +132,14 @@ class GaussianSmoothedHistoricalModel(TweetPredictor):
         density = np.zeros((grid_size, grid_size))
 
         # Place Gaussian around each training tweet
-        for position in self.train_positions:
+        weights = self.train_weights if self.train_weights is not None else np.ones(len(self.train_positions))
+        for i, position in enumerate(self.train_positions):
             # Calculate squared distances from this tweet to all grid points
             dist_sq = ((xx - position[0])**2 + (yy - position[1])**2)
 
-            # Add Gaussian contribution
+            # Add weighted Gaussian contribution
             gaussian_contrib = np.exp(-dist_sq / (2 * self.gaussian_bandwidth**2))
-            density += gaussian_contrib
+            density += gaussian_contrib * weights[i]
 
         # Normalize to sum to 1
         density_sum = density.sum()

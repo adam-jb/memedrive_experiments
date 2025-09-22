@@ -11,16 +11,34 @@ import os
 import json
 import time
 
+def calculate_tweet_importance(retweet_count, favorite_count, retweet_weight=1.0, favorite_weight=1.0, min_weight=1.0):
+    """Calculate tweet importance based on engagement metrics
+
+    Args:
+        retweet_count: Number of retweets
+        favorite_count: Number of favorites/likes
+        retweet_weight: Weight multiplier for retweets (default 1.0)
+        favorite_weight: Weight multiplier for favorites (default 1.0)
+        min_weight: Minimum weight for any tweet (default 1.0)
+
+    Returns:
+        Linear combination of engagement metrics with minimum floor
+    """
+    weight = (retweet_count * retweet_weight) + (favorite_count * favorite_weight) + min_weight
+    return float(weight)
+
+
 class TweetPredictor(ABC):
     """Abstract base class for tweet prediction models"""
 
     @abstractmethod
-    def fit(self, train_data: np.ndarray, train_times: np.ndarray, grid_size: int = 50) -> None:
+    def fit(self, train_data: np.ndarray, train_times: np.ndarray, train_weights: np.ndarray = None, grid_size: int = 50) -> None:
         """Train the model on historical data
 
         Args:
             train_data: (N, 2) array of tweet positions in 2D good-faith space
             train_times: (N,) array of timestamps for each tweet
+            train_weights: (N,) array of importance weights for each tweet (optional)
             grid_size: Resolution of density grid
         """
         pass
@@ -44,13 +62,15 @@ class TweetPredictor(ABC):
         pass
 
     def calculate_fds_score(self, predicted_density: np.ndarray, actual_tweets: np.ndarray,
-                           grid_bounds: Tuple[Tuple[float, float], Tuple[float, float]]) -> float:
+                           grid_bounds: Tuple[Tuple[float, float], Tuple[float, float]],
+                           tweet_weights: np.ndarray = None) -> float:
         """Calculate Field Density Score for prediction
 
         Args:
             predicted_density: (grid_size, grid_size) array of predicted probabilities
             actual_tweets: (N, 2) array of actual tweet positions
             grid_bounds: ((x_min, x_max), (y_min, y_max)) spatial bounds of the grid
+            tweet_weights: (N,) array of importance weights for each tweet (optional)
 
         Returns:
             FDS score where 1.0 is random performance, higher is better
@@ -60,6 +80,10 @@ class TweetPredictor(ABC):
 
         total_score = 0
         total_weight = 0
+
+        # Use uniform weights if none provided
+        if tweet_weights is None:
+            tweet_weights = np.ones(len(actual_tweets))
 
         # Unpack grid bounds
         (x_min, x_max), (y_min, y_max) = grid_bounds
@@ -85,8 +109,8 @@ class TweetPredictor(ABC):
             # Score of 1.0 = random performance, >1.0 = better than random
             fds_contribution = predicted_prob / expected_random_prob
 
-            # Simple uniform weighting for now (could add retweet weighting later)
-            weight = 1.0
+            # Use tweet importance weight
+            weight = tweet_weights[i]
 
             total_score += fds_contribution * weight
             total_weight += weight
@@ -103,12 +127,13 @@ class DataLoader:
         self.start_date = start_date
         self.end_date = end_date
 
-    def load_data(self) -> Tuple[np.ndarray, np.ndarray]:
-        """Load tweet data with good-faith coordinates and timestamps
+    def load_data(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Load tweet data with good-faith coordinates, timestamps, and engagement weights
 
         Returns:
             positions: (N, 2) array of good-faith coordinates
             times: (N,) array of timestamps
+            weights: (N,) array of importance weights based on engagement
         """
         df = pd.read_csv(self.csv_path)
 
@@ -127,10 +152,21 @@ class DataLoader:
 
         times = pd.to_datetime(df['datetime']).values
 
+        # Calculate importance weights from engagement metrics
+        if 'retweet_count' in df.columns and 'favorite_count' in df.columns:
+            weights = np.array([
+                calculate_tweet_importance(row['retweet_count'], row['favorite_count'])
+                for _, row in df.iterrows()
+            ])
+        else:
+            print("Warning: No engagement columns found, using uniform weights")
+            weights = np.ones(len(df))
+
         # Remove rows with NaN values
         valid_mask = ~(np.isnan(positions).any(axis=1) | pd.isna(times))
         positions = positions[valid_mask]
         times = times[valid_mask]
+        weights = weights[valid_mask]
 
         # Apply date window filtering if specified
         if self.start_date or self.end_date:
@@ -144,23 +180,25 @@ class DataLoader:
 
             positions = positions[date_mask]
             times = times[date_mask]
+            weights = weights[date_mask]
 
             print(f"Date filtering applied: {self.start_date} to {self.end_date}")
             print(f"Tweets after date filtering: {len(positions)}")
 
-        return positions, times
+        return positions, times, weights
 
-    def temporal_split(self, positions: np.ndarray, times: np.ndarray,
-                      test_weeks: int = 1) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    def temporal_split(self, positions: np.ndarray, times: np.ndarray, weights: np.ndarray,
+                      test_weeks: int = 1) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Split data temporally for training/testing
 
         Args:
             positions: Tweet positions
             times: Tweet timestamps
+            weights: Tweet importance weights
             test_weeks: Number of weeks to hold out for testing
 
         Returns:
-            train_positions, train_times, test_positions, test_times
+            train_positions, train_times, train_weights, test_positions, test_times, test_weights
         """
         # Convert to pandas datetime if not already
         times_pd = pd.to_datetime(times)
@@ -169,6 +207,7 @@ class DataLoader:
         sort_idx = np.argsort(times_pd)
         positions = positions[sort_idx]
         times = times[sort_idx]
+        weights = weights[sort_idx]
         times_pd = times_pd[sort_idx]
 
         # Split point: hold out last test_weeks for testing
@@ -177,10 +216,12 @@ class DataLoader:
 
         train_positions = positions[split_mask]
         train_times = times[split_mask]
+        train_weights = weights[split_mask]
         test_positions = positions[~split_mask]
         test_times = times[~split_mask]
+        test_weights = weights[~split_mask]
 
-        return train_positions, train_times, test_positions, test_times
+        return train_positions, train_times, train_weights, test_positions, test_times, test_weights
 
 class ProbabilisticEvaluator:
     """Evaluates models using field density scores for tweet prediction"""
@@ -407,29 +448,31 @@ class ProbabilisticEvaluator:
         self.animation_frames.clear()
 
     def evaluate_model(self, model: TweetPredictor,
-                      train_positions: np.ndarray, train_times: np.ndarray,
-                      test_positions: np.ndarray, test_times: np.ndarray,
+                      train_positions: np.ndarray, train_times: np.ndarray, train_weights: np.ndarray,
+                      test_positions: np.ndarray, test_times: np.ndarray, test_weights: np.ndarray,
                       grid_size: int = 100) -> Dict[str, float]:
         """Comprehensive model evaluation with single training, multiple predictions"""
 
         # TRAIN ONCE: Train the model on all training data
         print(f"Training {model.get_name()} on {len(train_positions)} training tweets...")
-        model.fit(train_positions, train_times, grid_size)
+        model.fit(train_positions, train_times, train_weights, grid_size)
 
         # Combine all data and sort by time for sliding prediction
         all_positions = np.vstack([train_positions, test_positions])
         all_times = np.concatenate([train_times, test_times])
+        all_weights = np.concatenate([train_weights, test_weights])
 
         # Sort everything by time
         sort_idx = np.argsort(all_times)
         all_positions = all_positions[sort_idx]
         all_times = all_times[sort_idx]
+        all_weights = all_weights[sort_idx]
 
         # Find the split point (where test data starts)
         original_split_time = train_times.max()
 
         # Group by custom time frames for evaluation
-        all_df = pd.DataFrame({'time': all_times, 'pos': list(all_positions)})
+        all_df = pd.DataFrame({'time': all_times, 'pos': list(all_positions), 'weight': all_weights})
         all_df['datetime'] = pd.to_datetime(all_df['time'])
 
         # Create custom time frame groupings based on frame_duration_days
@@ -475,6 +518,7 @@ class ProbabilisticEvaluator:
             frame_data = all_df[frame_mask]
             frame_positions = np.array(frame_data['pos'].tolist())
             frame_times = frame_data['time'].values
+            frame_weights = frame_data['weight'].values
 
             # Only proceed if this frame is in test period
             if not any(pd.to_datetime(frame_times) > original_split_time):
@@ -537,7 +581,7 @@ class ProbabilisticEvaluator:
                 grid_bounds = ((0, 8), (0, 6))
 
             # Calculate new field density score (replaces PWS)
-            field_score = model.calculate_fds_score(predicted_density, frame_positions, grid_bounds)
+            field_score = model.calculate_fds_score(predicted_density, frame_positions, grid_bounds, frame_weights)
             scores.append(field_score)
             tweet_counts.append(len(frame_positions))
 
@@ -636,12 +680,12 @@ class TestingFramework:
         self.experiment_timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
 
         print("Loading data...")
-        positions, times = self.data_loader.load_data()
+        positions, times, weights = self.data_loader.load_data()
 
         print(f"Loaded {len(positions)} tweets")
         print("Creating temporal split...")
-        train_pos, train_times, test_pos, test_times = \
-            self.data_loader.temporal_split(positions, times, test_weeks)
+        train_pos, train_times, train_weights, test_pos, test_times, test_weights = \
+            self.data_loader.temporal_split(positions, times, weights, test_weeks)
 
         print(f"Training data: {len(train_pos)} tweets")
         print(f"Test data: {len(test_pos)} tweets")
@@ -655,7 +699,7 @@ class TestingFramework:
             # Pass animation models to evaluator
             self.evaluator.animate_models = self.animate_models
             scores = self.evaluator.evaluate_model(
-                model, train_pos, train_times, test_pos, test_times, self.grid_size
+                model, train_pos, train_times, train_weights, test_pos, test_times, test_weights, self.grid_size
             )
 
             model_end_time = time.time()
