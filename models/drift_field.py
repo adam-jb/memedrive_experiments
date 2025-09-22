@@ -125,14 +125,14 @@ class DriftFieldModel(TweetPredictor):
             return -avg_fds
 
         # Run Bayesian optimization - single core, simple approach
-        n_calls = 10  # Increased for better parameter learning
+        n_calls = 100  # Increased for better parameter learning
         print(f"Running Bayesian optimization with {n_calls} evaluations...")
 
         result = gp_minimize(
             func=objective,
             dimensions=self.PARAM_SPACE,
             n_calls=n_calls,
-            n_initial_points=3,  # More random exploration points
+            n_initial_points=20,  # More random exploration points
             acq_func='gp_hedge',  # Robust acquisition function
             random_state=42,
             verbose=False  # Reduce noise

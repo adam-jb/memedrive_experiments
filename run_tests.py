@@ -12,7 +12,7 @@ def main():
     # Path to tweet data - use the larger 3.4M tweet dataset
     csv_path = '~/Desktop/memedrive_experiments/output_data/community_archive_good_faith_embeddings.csv'
 
-    # Target topic
+    # Target topic: used to label experiment result files
     target_topic = 'good_faith'
 
     # Use larger sample to get more test tweets

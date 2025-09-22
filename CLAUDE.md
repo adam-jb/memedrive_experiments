@@ -89,7 +89,7 @@ Add parameter in main runner, which if set leads to making an animation with 2 f
 4. Adapt code to allow predictions to be made in embeddings of over 2 dimensions (this may already be possible - am not sure)
 
 Models to try:
-0. make drift_field.py make better predictions: involving some refinement of the method. See if there are any scaling laws between sample size and quality of predictions. Use multicore if compute becomes bottleneck. 
+0. make drift_field.py make better predictions: involving some refinement of the method. See if there are any scaling laws between sample size and quality of predictions [A: as of 22nd Sept 2025 I dont think there are: its max performance equals the baseline].
 1. Deep neural nets: maybe LSTM. Would want to create a time series of images for this.
 
 Other investigations:
