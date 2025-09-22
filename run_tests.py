@@ -16,10 +16,10 @@ def main():
     target_topic = 'good_faith'
 
     # Use larger sample to get more test tweets
-    sample_size = 1_000_000  # Set to None to have all
+    sample_size = 10_000  # Set to None to have all
 
     # Date window parameters (None = use all data). YYYY-mm-dd
-    start_date = '2022-01-01'  # e.g., '2024-01-01'
+    start_date = '2024-01-01'  # e.g., '2024-01-01'
     end_date =  '2024-12-31'    # e.g., '2024-12-31'
 
     # Models to animate (set to empty list to disable)
@@ -28,12 +28,16 @@ def main():
     # Grid resolution (e.g., 100 for 100x100 grid)
     grid_size = 100
 
+    # Frame duration in days (can be decimal, e.g., 0.5 for 12 hours)
+    frame_duration_days = 1.0  # Default is 7 days (1 week)
+
     print("Initializing testing framework...")
     framework = TestingFramework(csv_path, sample_size=sample_size,
                                 start_date=start_date, end_date=end_date,
                                 animate_models=animate_models,
                                 grid_size=grid_size,
-                                target_topic=target_topic)
+                                target_topic=target_topic,
+                                frame_duration_days=frame_duration_days)
 
     # Random model has FDS of 1
     framework.add_model(RandomModel())
@@ -45,7 +49,7 @@ def main():
     framework.add_model(DriftFieldModel())
 
 
-    results = framework.run_evaluation(test_weeks=20)
+    results = framework.run_evaluation(test_weeks=10)
 
     # Print results
     framework.print_results(results)

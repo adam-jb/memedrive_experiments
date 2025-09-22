@@ -338,8 +338,9 @@ class ProbabilisticEvaluator:
                 frame_data = frames[week_idx]
                 predicted_density = frame_data['predicted_density']
                 true_positions = frame_data['true_positions']
-                year = frame_data['year']
-                week = frame_data['week']
+                frame_id = frame_data['frame_id']
+                frame_start = frame_data['frame_start']
+                frame_end = frame_data['frame_end']
                 field_score = frame_data['field_score']
 
                 # Show predicted density heatmap
@@ -347,12 +348,29 @@ class ProbabilisticEvaluator:
                               extent=[global_x_min, global_x_max, global_y_min, global_y_max],
                               origin='lower', cmap='viridis', alpha=0.8)
 
+                # Get frame duration from TestingFramework instance
+                # Access via the evaluator's parent framework
+                testing_framework = getattr(self, 'parent_framework', None)
+                if testing_framework and hasattr(testing_framework, 'frame_duration_days'):
+                    frame_duration_days = testing_framework.frame_duration_days
+                else:
+                    frame_duration_days = 7.0  # Default fallback
+
+                # Format frame duration for display
+                if frame_duration_days >= 1:
+                    duration_str = f"{frame_duration_days:.0f}d" if frame_duration_days == int(frame_duration_days) else f"{frame_duration_days:.1f}d"
+                else:
+                    hours = frame_duration_days * 24
+                    duration_str = f"{hours:.0f}h" if hours == int(hours) else f"{hours:.1f}h"
+
+                frame_label = f"Frame {frame_id} ({duration_str})"
+
                 if not is_second_frame:
                     # Frame 1: Prediction only
-                    title = f'{model_name}\nWeek {year}-{week} | Prediction Only | Score: {field_score:.3f}'
+                    title = f'{model_name}\n{frame_label} | Prediction Only | Score: {field_score:.3f}'
                 else:
                     # Frame 2: Prediction + actual tweets overlaid
-                    title = f'{model_name}\nWeek {year}-{week} | + Actual Tweets | Score: {field_score:.3f}'
+                    title = f'{model_name}\n{frame_label} | + Actual Tweets | Score: {field_score:.3f}'
 
                     # Overlay actual tweet positions
                     if len(true_positions) > 0:
@@ -410,42 +428,74 @@ class ProbabilisticEvaluator:
         # Find the split point (where test data starts)
         original_split_time = train_times.max()
 
-        # Group by week for evaluation
+        # Group by custom time frames for evaluation
         all_df = pd.DataFrame({'time': all_times, 'pos': list(all_positions)})
         all_df['datetime'] = pd.to_datetime(all_df['time'])
-        all_df['week'] = all_df['datetime'].dt.isocalendar().week
-        all_df['year'] = all_df['datetime'].dt.year
 
-        # Only evaluate weeks that are in the test period
-        test_weeks = all_df[all_df['datetime'] > original_split_time]
+        # Create custom time frame groupings based on frame_duration_days
+        min_time = all_df['datetime'].min()
+        max_time = all_df['datetime'].max()
+
+        # Get frame duration from parent framework
+        frame_duration_days = getattr(self.parent_framework, 'frame_duration_days')
+        frame_duration = pd.Timedelta(days=frame_duration_days)
+        time_frames = []
+        current_time = min_time
+        frame_id = 0
+
+        while current_time < max_time:
+            frame_end = current_time + frame_duration
+            time_frames.append({
+                'frame_id': frame_id,
+                'start_time': current_time,
+                'end_time': frame_end
+            })
+            current_time = frame_end
+            frame_id += 1
+
+        # Assign each tweet to a time frame
+        all_df['frame_id'] = -1
+        for frame in time_frames:
+            mask = (all_df['datetime'] >= frame['start_time']) & (all_df['datetime'] < frame['end_time'])
+            all_df.loc[mask, 'frame_id'] = frame['frame_id']
+
+        # Only evaluate frames that are in the test period
+        test_frames_df = all_df[all_df['datetime'] > original_split_time]
+        test_frame_ids = test_frames_df['frame_id'].unique()
+        test_frame_ids = test_frame_ids[test_frame_ids >= 0]  # Remove any -1 values
 
         scores = []
         kl_divergences = []
         tweet_counts = []
         total_test_tweets = 0
 
-        for (year, week) in test_weeks[['year', 'week']].drop_duplicates().values:
-            # Get data for this specific week
-            week_mask = (all_df['year'] == year) & (all_df['week'] == week)
-            week_data = all_df[week_mask]
-            week_positions = np.array(week_data['pos'].tolist())
-            week_times = week_data['time'].values
+        for frame_id in test_frame_ids:
+            # Get data for this specific frame
+            frame_mask = all_df['frame_id'] == frame_id
+            frame_data = all_df[frame_mask]
+            frame_positions = np.array(frame_data['pos'].tolist())
+            frame_times = frame_data['time'].values
 
-            # Only proceed if this week is in test period
-            if not any(pd.to_datetime(week_times) > original_split_time):
+            # Only proceed if this frame is in test period
+            if not any(pd.to_datetime(frame_times) > original_split_time):
                 continue
 
-            total_test_tweets += len(week_positions)
+            total_test_tweets += len(frame_positions)
 
-            # Update model state with data up to (but not including) this week
+            # Get frame boundaries for labeling
+            frame_info = next(f for f in time_frames if f['frame_id'] == frame_id)
+            frame_start = frame_info['start_time']
+            frame_end = frame_info['end_time']
+
+            # Update model state with data up to (but not including) this frame
             # Use sliding window for drift field models, expanding window for others
             if hasattr(model, 'params') and 'history_window' in model.params:
                 # Drift field model: use sliding window based on history_window
-                history_window_weeks = model.params['history_window']
-                current_time = week_data['datetime'].min()
+                history_window_days = model.params['history_window'] * frame_duration_days
+                current_time = frame_start
 
-                # Calculate start time for sliding window (history_window weeks before current week)
-                start_time = current_time - pd.Timedelta(weeks=history_window_weeks)
+                # Calculate start time for sliding window (history_window frames before current frame)
+                start_time = current_time - pd.Timedelta(days=history_window_days)
                 train_mask = (all_df['datetime'] >= start_time) & (all_df['datetime'] < current_time)
 
                 # If sliding window is empty, fall back to all historical data
@@ -453,28 +503,28 @@ class ProbabilisticEvaluator:
                     train_mask = all_df['datetime'] < current_time
             else:
                 # Other models: use all historical data (expanding window)
-                train_mask = all_df['datetime'] < week_data['datetime'].min()
+                train_mask = all_df['datetime'] < frame_start
 
             if train_mask.sum() == 0:
                 continue  # Skip if no training data
 
-            week_train_positions = np.array(all_df[train_mask]['pos'].tolist())
-            week_train_times = all_df[train_mask]['time'].values
+            frame_train_positions = np.array(all_df[train_mask]['pos'].tolist())
+            frame_train_times = all_df[train_mask]['time'].values
 
             # Update model state for this prediction window (no re-training)
             if hasattr(model, 'update_state'):
-                model.update_state(week_train_positions, week_train_times)
+                model.update_state(frame_train_positions, frame_train_times)
 
-            # Predict density for this week
-            predicted_density = model.predict_density(week_times, grid_size)[0]
+            # Predict density for this frame
+            predicted_density = model.predict_density(frame_times, grid_size)[0]
 
             # Create true density from observed positions (point-based, no Gaussians)
-            true_density = self.create_point_based_density(week_positions, grid_size)
+            true_density = self.create_point_based_density(frame_positions, grid_size)
 
             # Calculate grid bounds for field density score
-            if len(week_positions) > 0:
-                x_min, x_max = week_positions[:, 0].min(), week_positions[:, 0].max()
-                y_min, y_max = week_positions[:, 1].min(), week_positions[:, 1].max()
+            if len(frame_positions) > 0:
+                x_min, x_max = frame_positions[:, 0].min(), frame_positions[:, 0].max()
+                y_min, y_max = frame_positions[:, 1].min(), frame_positions[:, 1].max()
 
                 # Add padding (same as used in density creation)
                 x_padding = max(0.5, (x_max - x_min) * 0.2)
@@ -487,13 +537,14 @@ class ProbabilisticEvaluator:
                 grid_bounds = ((0, 8), (0, 6))
 
             # Calculate new field density score (replaces PWS)
-            field_score = model.calculate_fds_score(predicted_density, week_positions, grid_bounds)
+            field_score = model.calculate_fds_score(predicted_density, frame_positions, grid_bounds)
             scores.append(field_score)
-            tweet_counts.append(len(week_positions))
+            tweet_counts.append(len(frame_positions))
 
             # Plot heatmap for HistoricalAverageModel or GaussianSmoothed models (disabled)
             # if "Historical Average" in model.get_name() or "Gaussian Smoothed" in model.get_name():
-            #     self._plot_prediction_heatmap(predicted_density, true_density, year, week, model.get_name(), field_score)
+            #     frame_label = f"frame_{frame_id}_{frame_start.strftime('%Y%m%d_%H%M')}"
+            #     self._plot_prediction_heatmap(predicted_density, true_density, frame_label, model.get_name(), field_score)
 
             # Collect animation frames for specified models
             should_animate = any(animate_name in model.get_name() for animate_name in self.animate_models)
@@ -502,16 +553,17 @@ class ProbabilisticEvaluator:
                 if model_name not in self.animation_frames:
                     self.animation_frames[model_name] = []
 
-                # Store frame data for this week
-                frame_data = {
+                # Store frame data for this time frame
+                animation_frame_data = {
                     'predicted_density': predicted_density.copy(),
-                    'true_positions': week_positions.copy(),
+                    'true_positions': frame_positions.copy(),
                     'grid_bounds': grid_bounds,
-                    'year': year,
-                    'week': week,
+                    'frame_id': frame_id,
+                    'frame_start': frame_start,
+                    'frame_end': frame_end,
                     'field_score': field_score
                 }
-                self.animation_frames[model_name].append(frame_data)
+                self.animation_frames[model_name].append(animation_frame_data)
 
             # KL divergence (traditional metric)
             pred_norm = predicted_density / predicted_density.sum() + 1e-10
@@ -542,13 +594,16 @@ class TestingFramework:
     def __init__(self, data_path: str, sample_size: Optional[int] = None,
                  start_date: Optional[str] = None, end_date: Optional[str] = None,
                  animate_models: list = None, grid_size: int = 100,
-                 experiment_log_path: str = None, target_topic: str = 'general'):
+                 experiment_log_path: str = None, target_topic: str = 'general',
+                 frame_duration_days: float = 7.0):
         self.data_loader = DataLoader(data_path, sample_size, start_date, end_date)
         self.evaluator = ProbabilisticEvaluator()
+        self.evaluator.parent_framework = self  # Set parent reference for animation access
         self.models = []
         self.animate_models = animate_models or []  # Models to create animations for
         self.grid_size = grid_size  # Grid resolution
         self.target_topic = target_topic
+        self.frame_duration_days = frame_duration_days  # Configurable frame duration
 
         # Create experiment_results directory if it doesn't exist
         experiment_dir = Path('experiment_results')
@@ -566,7 +621,8 @@ class TestingFramework:
             'start_date': start_date,
             'end_date': end_date,
             'grid_size': grid_size,
-            'animate_models': animate_models
+            'animate_models': animate_models,
+            'frame_duration_days': frame_duration_days
         }
         self.sample_size = sample_size
 
