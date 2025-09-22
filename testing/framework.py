@@ -581,11 +581,11 @@ class ProbabilisticEvaluator:
         weighted_kl = np.sum(kl_divergences * tweet_counts) / np.sum(tweet_counts) if np.sum(tweet_counts) > 0 else np.mean(kl_divergences)
 
         return {
-            'field_density_score': weighted_pws,  # Now contains field density scores
-            'kl_divergence': weighted_kl,
-            'score_std': np.std(scores),
-            'weeks_evaluated': len(scores),
-            'total_test_tweets': total_test_tweets
+            'field_density_score': float(weighted_pws),  # Convert to Python float for JSON serialization
+            'kl_divergence': float(weighted_kl),
+            'score_std': float(np.std(scores)),
+            'weeks_evaluated': int(len(scores)),
+            'total_test_tweets': int(total_test_tweets)
         }
 
 class TestingFramework:

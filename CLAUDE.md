@@ -84,23 +84,32 @@ Add parameter in main runner, which if set leads to making an animation with 2 f
 
 ## The most important things to get this show on the road
 1. Convert data to a meaningful set of dimensions (the 2d good faith ones aren’t so good: there needs to be signal for the models to find)
-2. Make 'weight' account for each tweet in calculate_fds_score() (testing/framework.py)
-3. Test models with high resolution
-4. Adapt code to allow predictions to be made in embeddings of over 2 dimensions (this may already be possible - am not sure)
+2. Make 'weight' account for each tweet in calculate_fds_score() (testing/framework.py) [there is _fds_loss() in lstm_predictor.py too, which should really read the FDS func from framework, so we only have to define the formula once, or have the FDS func in a separate file to be sourced by all others]
+3. Adapt code to allow predictions to be made in embeddings of over 2 dimensions (this may already be possible - am not sure)
 
-Models to try:
-0. make drift_field.py make better predictions: involving some refinement of the method. See if there are any scaling laws between sample size and quality of predictions [A: as of 22nd Sept 2025 I dont think there are: its max performance equals the baseline].
-1. Deep neural nets: maybe LSTM. Would want to create a time series of images for this.
 
 Other investigations:
 1. look for basins, clusters and what I might count as memeplexes
 
 Things which might help:
 1. Downloading and using the 1bn+ tweets dataset
+2. Make resolution higher
 
-Observations on Drift Field:
+
+## Observations on Drift Field
 1. It performs about the same as historical avg when trained on 100k sample and 200 bayes iters. However looking at the image, it distributes the predictions very differently to the baseline (clustering it too centrally). Makes me wonder if LSTM better
 2. Might do better with more granular data (ie daily not weekl: contagions can spread very fast so a week might not be granular enough to model the 'physics' of the system)
+3. Looked for if there are any scaling laws between sample size and quality of predictions [A: as of 22nd Sept 2025 I dont think there are: its max performance equals the baseline].
+
+
+
+
+## On deep neural network
+
+original instruction: time to create a new model for the framework! The idea is to use a deep neural network which trains on n-dimensional images of what the 'perfect' probability density distribution would be for that frame (based on its points and all previous points). The model be a time series model, which predicts the next frame from all the frames so far. What do you need to ask to clarify this? 
+
+earlier thought which was implements: Can treat the learnable sigma parameter (how large the gaussian over each tweet is) as a regularisation term: larger gaussians around tweets means the model fits less strongly to areas. That's good. We need the actual 'reward signal' to be the right balance between this regulariser and what is actually being predicted (the location of specific tweets as per the FDS). One way to do this is have the FDS, or a version of FDS, be what is optimised for during LSTM training. 
+
 
 
 
@@ -244,6 +253,77 @@ As well as a strongly memetic leader, one also needs enough influencers (of all 
 
 "Influencers" here means anyone with any form of public following, not just people who's main income comes from social media accounts.
 
+
+
+# More info on deep neural net
+
+LSTM Tweet Prediction Model Summary
+
+  Model Architecture
+
+  Input Processing:
+  - Time Series Conversion: Tweet data → sequence of density grids over time frames
+  - Spatial Representation: Each frame is a 2D grid (default 100×100) representing tweet density in good-faith space (sincerity × charity)
+  - Sequence Learning: LSTM processes last N frames (default 7) to predict next frame's density
+
+  Neural Network Structure:
+  Input: [batch, sequence_length, grid_size²]
+     ↓
+  LSTM: [hidden_size=64, num_layers=2] + dropout
+     ↓
+  Dense: [hidden_size → grid_size²]
+     ↓
+  Softmax: Valid probability distribution
+     ↓
+  Output: [grid_size, grid_size] density prediction
+
+  Key Innovation: FDS-Optimized Training
+
+  Traditional approach: Train on synthetic density targets using MSE loss
+  Our approach: Train directly on actual tweet positions using Field Density Score loss
+
+  Loss Function:
+  FDS_loss = -mean(log(predicted_probability_at_actual_tweet_locations))
+
+  Benefits:
+  - Optimizes exactly what we measure (tweet prediction accuracy)
+  - No proxy targets or misaligned objectives
+  - Learnable sigma finds optimal balance between precision and generalization
+
+  Learnable Sigma Regularization
+
+  Concept: Gaussian width around tweets becomes trainable parameter
+  - Larger σ → smoother predictions → less overfitting → potentially lower precision
+  - Smaller σ → sharper predictions → more overfitting → potentially better precision
+  - Learned σ → optimal balance for FDS performance
+
+  Recommended Hyperparameters
+
+  Core Architecture:
+  sequence_length=7        # 7 historical frames
+  hidden_size=64          # LSTM hidden units  
+  num_layers=2            # LSTM depth
+  grid_size=100           # 100×100 spatial resolution
+
+  Training:
+  epochs=30               # Training iterations
+  batch_size=32           # Batch size
+  learning_rate=0.001     # Adam optimizer
+  gaussian_sigma=0.05     # Initial σ (will be learned)
+  learn_sigma=True        # Enable σ optimization
+
+  Temporal:
+  frame_duration_days=1.0  # Daily predictions (can be <1 for hourly)
+
+  Why This Works
+
+  1. Direct Optimization: Loss function = evaluation metric (FDS)
+  2. Temporal Patterns: LSTM captures how tweet density evolves over time
+  3. Spatial Awareness: Grid representation preserves 2D relationships
+  4. Adaptive Regularization: Sigma learns dataset-specific optimal smoothness
+  5. End-to-End: All parameters optimize for final prediction task
+
+  Result: Model that learns to predict where tweets will actually appear, not just fit smooth density surfaces.
 
 
 

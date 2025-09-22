@@ -7,6 +7,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from testing.framework import TestingFramework
 from models.baseline import HistoricalAverageModel, RandomModel, GaussianSmoothedHistoricalModel
 from models.drift_field import DriftFieldModel
+from models.lstm_predictor import LSTMTweetPredictor
 
 def main():
     # Path to tweet data - use the larger 3.4M tweet dataset
@@ -23,7 +24,7 @@ def main():
     end_date =  '2024-12-31'    # e.g., '2024-12-31'
 
     # Models to animate (set to empty list to disable)
-    animate_models = ['DriftField'] #['Gaussian Smoothed Historical']
+    animate_models = ['DriftField', 'LSTM']
 
     # Grid resolution (e.g., 100 for 100x100 grid)
     grid_size = 100
@@ -46,8 +47,19 @@ def main():
     framework.add_model(HistoricalAverageModel(bandwidth=0.1))
 
     # Modelling we're hoping beats baseline
-    framework.add_model(DriftFieldModel())
+    #framework.add_model(DriftFieldModel())
 
+    # LSTM-based deep neural network model with learnable sigma and FDS loss
+    framework.add_model(LSTMTweetPredictor(
+        sequence_length=5,      # Shorter sequences for faster training
+        hidden_size=100,        # Network capacity
+        num_layers=2,           # LSTM depth
+        epochs=20,              # Training epochs
+        learning_rate=0.01,     # Higher base learning rate
+        gaussian_sigma=0.1,     # Start higher, let it learn down
+        frame_duration_days=frame_duration_days,
+        learn_sigma=True        # Enable learnable sigma optimization
+    ))
 
     results = framework.run_evaluation(test_weeks=10)
 
