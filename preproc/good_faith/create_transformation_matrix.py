@@ -11,7 +11,7 @@ import argparse
 # Lens configuration mapping
 LENS_CONFIGS = {
     'good_faith': {
-        'dimensions': ['sincerity', 'charity', 'constructiveness'],
+        'dimensions': ['sincerity', 'charity'],
         'csv_suffix': 'good_faith',
         'output_prefix': 'good_faith'
     },

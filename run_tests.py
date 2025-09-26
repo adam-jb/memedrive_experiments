@@ -27,7 +27,7 @@ def main():
     target_topic = lens_type
 
     # Use larger sample to get more test tweets
-    sample_size = 500_000  # Set to None to have all
+    sample_size = None  # Set to None to have all
 
     # Date window parameters (None = use all data). YYYY-mm-dd
     start_date = '2022-01-01'  # e.g., '2024-01-01'
@@ -62,9 +62,9 @@ def main():
     # LSTM-based deep neural network model with learnable sigma and FDS loss
     framework.add_model(LSTMTweetPredictor(
         sequence_length=5,      # Shorter sequences for faster training
-        hidden_size=100,        # Network capacity
+        hidden_size=500,        # Network capacity
         num_layers=3,           # LSTM depth
-        epochs=10,              # Training epochs
+        epochs=100,              # Training epochs
         learning_rate=0.01,     # Higher base learning rate
         gaussian_sigma=0.1,     # Start higher, let it learn down
         frame_duration_days=frame_duration_days,
