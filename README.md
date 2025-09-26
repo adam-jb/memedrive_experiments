@@ -14,6 +14,43 @@ See if can find 'semantic basins' (ie attractors for certain topics) and what th
 Look for basins of particular things, such as 'high trust', and how people move towards or away from these
 
 
+## For running full process
+  For Excitement/Directedness Lens (Today)
+
+  Step 1: Rate 25k tweets using Claude 
+  python preproc/good_faith/get_good_faith_ratings.py --lens_type excitement_directedness --model_type claude --sample_size 25000
+
+Step 2: Create transformation matrix
+  python preproc/good_faith/create_transformation_matrix.py --lens_type excitement_directedness
+
+  Step 3: Create final embeddings CSV
+  python create_community_archive_embeddings.py --lens_type excitement_directedness
+
+  Step 4: Run experiments
+  # Edit run_tests.py: change lens_type = 'excitement_directedness'
+  python run_tests.py
+
+  For Future Lenses
+
+  1. Add lens configuration to preproc/good_faith/get_good_faith_ratings.py in LENS_CONFIGS dict:
+  'your_new_lens': {
+      'dimensions': ['dimension1', 'dimension2'],
+      'scale': '0-10',
+      'default_value': 5,
+      'prompt_template': """Your prompt here with {tweet_text}""",
+      'composite_formula': lambda dims: dims.mean(axis=1)
+  }
+  2. Add lens mapping to preproc/good_faith/create_transformation_matrix.py in LENS_CONFIGS dict:
+  'your_new_lens': {
+      'dimensions': ['dimension1', 'dimension2'],
+      'csv_suffix': 'your_new_lens',
+      'output_prefix': 'your_new_lens'
+  }
+  3. Run the same 5-step pipeline above with --lens_type your_new_lens
+
+
+
+
 
 
 ## Ideas

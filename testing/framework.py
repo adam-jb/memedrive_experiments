@@ -436,7 +436,7 @@ class ProbabilisticEvaluator:
 
             # Save animation
             clean_model_name = model_name.replace(' ', '_').replace('(', '').replace(')', '').replace('=', '').replace('.', '')
-            filename = f"model_animation_{clean_model_name}.gif"
+            filename = f"model_animation_{self.parent_framework.target_topic}_{clean_model_name}.gif"
             filepath = os.path.join('image_outputs', filename)
 
             anim.save(filepath, writer='pillow', fps=0.67, dpi=100)

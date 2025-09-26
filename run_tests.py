@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-
+# python run_tests.py --lens_type excitement_directedness
 import sys
 import os
+import argparse
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from testing.framework import TestingFramework
@@ -10,14 +11,23 @@ from models.drift_field import DriftFieldModel
 from models.lstm_predictor import LSTMTweetPredictor
 
 def main():
-    # Path to tweet data - use the larger 3.4M tweet dataset
-    csv_path = '~/Desktop/memedrive_experiments/output_data/community_archive_good_faith_embeddings.csv'
+    parser = argparse.ArgumentParser(description='Run tweet prediction experiments')
+    parser.add_argument('--lens_type', type=str, default='excitement_directedness',
+                       help='Lens type to use (e.g., good_faith, excitement_directedness)')
+
+    args = parser.parse_args()
+
+    # Configuration for different lens types; excitement_directedness, good_faith
+    lens_type = args.lens_type
+
+    # Path to tweet data - automatically determined by lens type
+    csv_path = f'~/Desktop/memedrive_experiments/output_data/community_archive_{lens_type}_embeddings.csv'
 
     # Target topic: used to label experiment result files
-    target_topic = 'good_faith'
+    target_topic = lens_type
 
     # Use larger sample to get more test tweets
-    sample_size = 10_000  # Set to None to have all
+    sample_size = 500_000  # Set to None to have all
 
     # Date window parameters (None = use all data). YYYY-mm-dd
     start_date = '2022-01-01'  # e.g., '2024-01-01'

@@ -58,6 +58,28 @@ the column 'datetime' is in this format: 2024-01-07 20:49:34+00:00
 
 
 
+## To run full pipeline
+
+Seem 
+
+```bash
+python preproc/good_faith/get_llm_tweet_ratings.py --lens_type excitement_directedness --model_type claude --sample_size 25000 --concurrent --max_workers 10 && \
+python preproc/good_faith/create_transformation_matrix.py --lens_type excitement_directedness && \
+python create_community_archive_embeddings.py --lens_type excitement_directedness && \
+python run_tests.py --lens_type excitement_directedness
+```
+
+
+To get Claude's takes on what good faith is
+```bash
+python preproc/good_faith/get_llm_tweet_ratings.py --lens_type good_faith --model_type claude --sample_size 25000 --concurrent --max_workers 10 && \
+python preproc/good_faith/create_transformation_matrix.py --lens_type good_faith && \
+python create_community_archive_embeddings.py --lens_type good_faith && \
+python run_tests.py --lens_type good_faith
+```
+
+
+
 
 ## recent things done
 
@@ -141,7 +163,7 @@ Add option to make bespoke versions for customers, which zoom in on particular a
 
 
   Good Faith Processing:
-  - preproc/good_faith/get_good_faith_ratings.py: get GPT to rate how 'good faith' tweets are according to 3 criteria (thus giving us 3d information for the sample tweets). At time of writing the criteria (which I think have plenty of room to improve) are sincerity, charity and constructiveness (issues with these 3 is they leave out humour, and the lack of context of isolated tweets make this hard to judge)
+  - preproc/good_faith/get_llm_tweet_ratings.py.py: get GPT or Claude to rate how 'good faith' tweets are according to 2 criteria. There are different criteria one can choose, and one would add new criteria for diffrent lenses to be added
   - preproc/good_faith/create_transformation_matrix.py: both learns and applies a transformation matrix to convert the embeddings matrix of all tweets to 3d, where the 3 dimensions map to the good faith ratings as judged by GPT. It's essentially a linear model, predicting each of the 3 dimensions, with all 768 embeddings as features
   - preproc/good_faith/3d_to_2d_umap.py - train UMAP on a sample of tweets, and apply to all tweets, to convert from 3d to 2d (input data is on 3 dimensions of 'good faith' and output is 2d). If the good faith ratings were obtained in 2d in the first place this script could be skipped
   - create_community_archive_good_faith_embeddings.py: horizontally concat 2d good faith rankings and community_archive.parquet, to make file for main modelling: community_archive_good_faith_embeddings.csv
